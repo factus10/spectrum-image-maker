@@ -573,6 +573,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
       <h3>Color Strategy</h3>
       <select id="colorStrategy">
         <option value="per-block">Per-block best-fit</option>
+        <option value="weighted-average">Weighted average pair fit</option>
         <option value="global">Global pre-quantize + per-block</option>
       </select>
     </div>
@@ -1196,6 +1197,19 @@ function isColorDisabled(mode, pIdx, cIdx) {
   return !!(set && set.has(disabledKey(pIdx, cIdx)));
 }
 
+function enabledColorMasks(mode) {
+  const cfg = MODES[mode] ?? MODES.standard;
+  const out = [];
+  for (let pIdx = 0; pIdx < cfg.palettes.length; pIdx++) {
+    const mask = [];
+    for (let cIdx = 0; cIdx < cfg.palettes[pIdx].length; cIdx++) {
+      mask.push(!isColorDisabled(mode, pIdx, cIdx));
+    }
+    out.push(mask);
+  }
+  return out;
+}
+
 function paletteStripEntries(mode) {
   const cfg = MODES[mode] || MODES.standard;
   const out = [];
@@ -1746,6 +1760,7 @@ function convert() {
       // palette colour that's close to the block's mean and flattens the
       // dither. We allow ink==paper for uniform blocks (no dither needed).
       const isThreshold = isThresholdDither(ditherMode);
+      const colorMasks = enabledColorMasks(currentMode);
       for (let by = 0; by < numAttrRows; by++) {
         for (let bx = 0; bx < numAttrCols; bx++) {
           const blockX = bx * bW, blockY = by * bH;
@@ -1777,6 +1792,19 @@ function convert() {
                     bestError = err; bestInk = ink; bestPaper = paper; bestBright = bright;
                   }
                 }
+              }
+            }
+          } else if (colorStrategy === 'weighted-average') {
+            const result = [0, 0];
+            for (let bright = 0; bright <= 1; bright++) {
+              const pal = modeCfg.palettes[bright];
+              const colorMask = colorMasks[bright];
+              const err = getBestWeightedColorPair(result, work, blockX, blockY, bW, bH, pal, colorMask);
+              if (err < bestError) {
+                bestError = err;
+                bestPaper = result[0];
+                bestInk = result[1];
+                bestBright = bright;
               }
             }
           } else {
@@ -3320,6 +3348,56 @@ function hilbertOrder(W, H) {
     if (x < W && y < H) out.push(x, y);
   }
   return { order: out, size: N };
+}
+
+// Picks two enabled colors out of the given palette, which can be best
+// combined inside the block to match overall average color of the block.
+// It simulates using an ideal dithering using two colors to match the
+// block most accurately without doing any particular dithering.
+function getBestWeightedColorPair(out, pixels, bx, by, bw, bh, palette, colorMask) {
+  const numPixels = bh * bw;
+
+  let sumR = 0, sumG = 0, sumB = 0;
+  for (let py = 0; py < bh; py++) {
+    for (let px = 0; px < bw; px++) {
+      const i = ((by + py) * screenWidth + bx + px) * 3;
+      sumR += pixels[i];
+      sumG += pixels[i + 1];
+      sumB += pixels[i + 2];
+    }
+  }
+  const avgColor = [sumR / numPixels, sumG / numPixels, sumB / numPixels];
+
+  let bestInk = 0;
+  let bestPaper = 0;
+  let bestError = Infinity;
+  for (let paper = 0; paper < palette.length - 1; paper++) {
+    if (!colorMask[paper]) continue;
+    for (let ink = paper + 1; ink < palette.length; ink++) {
+      if (!colorMask[ink]) continue;
+      for (let i = 0; i < numPixels; i++) {
+        const t = i / (numPixels - 1);
+        const paperColor = palette[paper];
+        const inkColor = palette[ink];
+        const color = [
+          paperColor[0] * t + inkColor[0] * (1 - t),
+          paperColor[1] * t + inkColor[1] * (1 - t),
+          paperColor[2] * t + inkColor[2] * (1 - t),
+        ];
+        const err = colorDist(color, avgColor);
+        if (err < bestError) {
+          bestPaper = paper;
+          bestInk = ink;
+          bestError = err;
+        }
+      }
+    }
+  }
+
+  out[0] = bestPaper;
+  out[1] = bestInk;
+
+  return bestError;
 }
 
 })();
