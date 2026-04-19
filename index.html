@@ -2092,7 +2092,7 @@ function convert() {
       const bx = Math.min(numAttrCols - 1, Math.floor(x / bW));
       const by = Math.min(numAttrRows - 1, Math.floor(y / bH));
       return blockColors[by][bx];
-    }, contentMask);
+    }, contentMask, { serpentine });
 
     // Restore modeCfg.palettes — we only swapped in linearized copies for the
     // dither pass, not for the app's persistent config.
@@ -2288,8 +2288,9 @@ function evaluateBlock(work, bx, by, bw, bh, colors, ditherMode) {
 // getColorsAt(x, y) returns an array of RGB triples [[r,g,b], ...] — the
 // palette available to the block containing pixel (x, y). Array length must
 // be >= 1.
-function applyGlobalDither(work, result, ditherMode, getColorsAt, contentMask) {
+function applyGlobalDither(work, result, ditherMode, getColorsAt, contentMask, opts) {
   const W = screenWidth, H = screenHeight;
+  const serpentine = !!(opts && opts.serpentine);
   // Helper: is this pixel inside content (true everywhere if no mask given)
   const inContent = contentMask
     ? (x, y) => contentMask[y * W + x] === 1
@@ -2370,7 +2371,13 @@ function applyGlobalDither(work, result, ditherMode, getColorsAt, contentMask) {
   const kernel = DIFFUSION_KERNELS[ditherMode];
 
   for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
+    // Serpentine: alternate rows are traversed right-to-left, and the
+    // kernel's x-offsets are mirrored. Kills directional "worm" artifacts.
+    const rtl = serpentine && (y & 1) === 1;
+    const xStart = rtl ? W - 1 : 0;
+    const xEnd = rtl ? -1 : W;
+    const xStep = rtl ? -1 : 1;
+    for (let x = xStart; x !== xEnd; x += xStep) {
       const idx = (y * W + x) * 3;
       const r = Math.max(0, Math.min(255, temp[idx]));
       const g = Math.max(0, Math.min(255, temp[idx+1]));
@@ -2390,7 +2397,8 @@ function applyGlobalDither(work, result, ditherMode, getColorsAt, contentMask) {
         const eg = g - chosen[1];
         const eb = b - chosen[2];
         for (const [dx, dy, weight] of kernel) {
-          const nx = x + dx, ny = y + dy;
+          const sx = rtl ? -dx : dx;
+          const nx = x + sx, ny = y + dy;
           if (nx >= 0 && nx < W && ny >= 0 && ny < H && inContent(nx, ny)) {
             const nIdx = (ny * W + nx) * 3;
             temp[nIdx]     += er * weight;
