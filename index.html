@@ -444,6 +444,66 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   justify-content: space-between;
 }
 
+/* Advanced options toggle */
+.advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+  cursor: pointer;
+  user-select: none;
+}
+.advanced-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent2);
+}
+.advanced-toggle .hint {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  margin-left: auto;
+}
+
+/* Hide advanced-only groups by default */
+.sidebar .advanced-only { display: none !important; }
+.sidebar.show-advanced .advanced-only { display: flex !important; }
+/* dividers adjacent to advanced groups */
+.sidebar .divider.advanced-only { display: none !important; }
+.sidebar.show-advanced .divider.advanced-only { display: block !important; }
+
+/* Auto recommendation badge */
+.auto-badge {
+  font-size: 0.72rem;
+  padding: 6px 8px;
+  background: rgba(0, 205, 205, 0.08);
+  border: 1px solid rgba(0, 205, 205, 0.3);
+  border-radius: var(--radius);
+  color: var(--text);
+  line-height: 1.35;
+}
+.auto-badge .auto-label {
+  color: var(--accent2);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  margin-right: 4px;
+}
+.auto-badge .auto-detect {
+  display: block;
+  color: var(--text-dim);
+  font-size: 0.68rem;
+  margin-top: 2px;
+}
+
+/* Hide palette interactivity in basic view */
+.sidebar:not(.show-advanced) .palette-strip .swatch { cursor: default; }
+.sidebar:not(.show-advanced) #paletteDisableRow { display: none !important; }
+
 /* Palette reference strip */
 .palette-strip {
   display: flex;
@@ -483,7 +543,18 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 </header>
 
 <div class="app">
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
+    <label class="advanced-toggle" title="Reveal technical controls (dithering algorithm, color strategy, experimental flags, etc.)">
+      <input type="checkbox" id="advancedToggle">
+      <span>Advanced options</span>
+      <span class="hint">power user</span>
+    </label>
+
+    <div class="auto-badge" id="autoBadge" style="display:none;">
+      <span class="auto-label">Auto:</span><span id="autoBadgeText">—</span>
+      <span class="auto-detect" id="autoBadgeDetect"></span>
+    </div>
+
     <div class="control-group">
       <h3>Display Mode</h3>
       <select id="displayMode">
@@ -550,7 +621,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
       </select>
     </div>
 
-    <div class="control-group">
+    <div class="control-group advanced-only">
       <h3>Dithering</h3>
       <select id="ditherMode">
         <option value="floyd-steinberg">Floyd-Steinberg</option>
@@ -569,7 +640,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
       </select>
     </div>
 
-    <div class="control-group" id="colorStrategyGroup">
+    <div class="control-group advanced-only" id="colorStrategyGroup">
       <h3>Color Strategy</h3>
       <select id="colorStrategy">
         <option value="weighted-average" selected>Weighted average pair fit</option>
@@ -612,6 +683,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
         <input type="checkbox" id="lockAspect" checked>
         Lock crop to 4:3
       </label>
+    </div>
+
+    <div class="control-group advanced-only">
       <label class="checkbox-row">
         <input type="checkbox" id="showGrid">
         Show attribute grid
@@ -642,9 +716,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
       </label>
     </div>
 
-    <div class="divider"></div>
+    <div class="divider advanced-only"></div>
 
-    <div class="control-group">
+    <div class="control-group advanced-only">
       <h3>Block pre-blur</h3>
       <label>Gaussian radius for block color selection</label>
       <div class="range-row">
@@ -653,9 +727,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
       </div>
     </div>
 
-    <div class="divider"></div>
+    <div class="divider advanced-only"></div>
 
-    <div class="control-group">
+    <div class="control-group advanced-only">
       <h3>Compare</h3>
       <button class="btn-secondary" id="snapshotBtn">Snapshot for A/B</button>
       <label class="checkbox-row">
@@ -664,9 +738,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
       </label>
     </div>
 
-    <div class="divider"></div>
+    <div class="divider advanced-only"></div>
 
-    <div class="control-group">
+    <div class="control-group advanced-only">
       <h3>Profile</h3>
       <div class="export-row">
         <button class="btn-secondary" id="exportProfileBtn">Export</button>
@@ -1627,6 +1701,23 @@ function updateModeUI() {
   }
 }
 updateModeUI();
+
+// --- Advanced options toggle (persisted in localStorage) ---
+(function initAdvancedToggle() {
+  const sidebar = document.getElementById('sidebar');
+  const toggle = document.getElementById('advancedToggle');
+  if (!sidebar || !toggle) return;
+  const LS_KEY = 'retroImg.advancedOptions';
+  let enabled = false;
+  try { enabled = localStorage.getItem(LS_KEY) === '1'; } catch (_) {}
+  toggle.checked = enabled;
+  sidebar.classList.toggle('show-advanced', enabled);
+  toggle.addEventListener('change', () => {
+    const on = toggle.checked;
+    sidebar.classList.toggle('show-advanced', on);
+    try { localStorage.setItem(LS_KEY, on ? '1' : '0'); } catch (_) {}
+  });
+})();
 
 // --- Error diffusion kernels ---
 // Each entry: [dx, dy, weight]
