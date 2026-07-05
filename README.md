@@ -9,7 +9,7 @@ A dependency-free browser image converter for classic 8-bit and 16-bit machines.
 | Machine | Mode | Pixels | Attribute / block size | Colors | Visible border | File |
 |---|---:|---:|---:|---|---|---|
 | ZX Spectrum | Standard | 256x192 | 8x8 | 2 of 16, ZX bright-black behavior | 32/32/24/24 | `.scr` / `.tap` |
-| ZX81 | Character graphics equalized / linear | 256x192 | 8x8 character cells | 64 glyphs + inverse video | 32/32/24/24 | `.zx8` |
+| ZX81 | Character graphics | 256x192 | 8x8 character cells | 64 glyphs + inverse video | 32/32/24/24 | `.zx8` |
 | TS 2068 | Standard | 256x192 | 8x8 | 2 of 16, Timex bright black is dark gray | 32/32/24/24 | `.scr` / `.tap` |
 | TS 2068 | Extended Color Mode | 256x192 | 8x1 | 2 of 16 per strip | 32/32/24/24 | `.scr` / `.tap` |
 | TS 2068 | 64-column hi-res | 512x192 | global | 8 hardware ink/paper pairs | 64/64/24/24 | `.scr` / `.tap` |
@@ -28,7 +28,7 @@ Custom modes can also be imported from JSON at runtime. PNG/JPG export works for
 
 ## Rendering And Color Pipeline
 
-- Images are loaded and processed in linear-light color space. Source adjustment, resampling, preview rendering, block-selection blur, output visualization, and linear-to-sRGB display conversion are handled through WebGL2 where appropriate.
+- Images are loaded and processed in linear-light color space. Source adjustment, resampling, preview rendering, output visualization, and linear-to-sRGB display conversion are handled through WebGL2 where appropriate.
 - Transparent source pixels keep their RGB values; alpha is ignored instead of compositing the image over black before conversion.
 - Dithering and quantization operate on linear pixels, then final converted pixels are resolved back to sRGB for display and export.
 - Output geometry is derived from each mode's addressable pixel area plus visible border, then mapped to a 4:3 display. Pixel aspect is calculated from that full visible frame rather than stored as a separate mode constant.
@@ -41,7 +41,7 @@ Custom modes can also be imported from JSON at runtime. PNG/JPG export works for
 - Drag-and-drop or browse for an image, then crop interactively in the input panel.
 - Resize the input/output split manually with the center divider.
 - Lock crop aspect ratio, stretch the selected crop to the target resolution, or turn Stretch off and fill side bars with the configured RGB crop fill color. Filled bars are part of the target image and can be dithered like any other pixels.
-- Use brightness, contrast, saturation, gamma, block pre-blur, dithering, palette, and search controls to tune the conversion.
+- Use brightness, contrast, saturation, gamma, dithering, palette, and search controls to tune the conversion.
 - Inspect available colors with the mode-aware palette strip and disable individual colors for palette-search modes when needed.
 - For Atari GR.8, choose foreground/background Atari hues and luma values directly; the palette strip is hidden because conversion uses those two selected colors.
 - Show an attribute grid overlay for block-based modes.
@@ -58,20 +58,24 @@ Fullscreen output renders the selected `Active` or `Saved` image with devicePixe
 
 ## Dithering And Color Search
 
-Dithering options include Floyd-Steinberg, Atkinson, Stucki, Jarvis-Judice-Ninke, Burkes, Sierra Lite, Hilbert-curve Floyd-Steinberg, Bayer 4x4, Bayer 8x8, blue-noise-style interleaved gradient noise, Yliluoma-style projection, halftone, and no dither.
+Dithering options include Floyd-Steinberg, Atkinson, Stucki, Jarvis-Judice-Ninke, Burkes, Sierra Lite, Dizzy, Hilbert diffusion, Hilbert Riemersma, Adaptive Riemersma, Blue noise, Bayer 4x4, Bayer 8x8, halftone, and no dither. Dizzy uses a deterministic shuffled pixel order per resolution and spreads error to unvisited adjacent neighbors with lower diagonal weight. Hilbert Riemersma follows a Hilbert curve and adds a 16-entry exponentially weighted recent-error history before quantization. Adaptive Riemersma builds an image-dependent space-filling curve by merging 2x2 pixel loops by color-distance delta, then uses the same recent-error history. Blue noise uses a generated 64x64 toroidal rank map with seamless wrapped edges, avoiding the hard tile boundaries of independently shifted tiles. Two-color ordered and threshold dithers project pixels onto the selected color segment in linear RGB before thresholding. This is the Yliluoma-like part of the old ordered workflow, so a separate Yliluoma option would only duplicate Bayer 4x4 with the same two-color projection.
 
 Color search strategies are mode-aware:
 
-- **Weighted average pair fit** is the default for many two-color block modes. It scores candidate color pairs by how well a blend can match the block average.
+- **Best segment coverage** is the default for two-color attribute modes such as ZX/Timex and C64 hi-res. It scores candidate attribute pairs by projecting each original block pixel onto the ink-paper line segment in linear RGB and choosing the pair with the lowest coverage error.
+- **Best simplex coverage** is the default for C64 multicolor modes. It scores each four-color candidate set by how well its linear RGB convex hull covers the original block.
+- **Weighted average pair fit** scores candidate color pairs by how well a blend can match the block average; ZX/Timex attribute modes use linear RGB for this scoring to match their final pixel decisions.
 - **Per-block best-fit** exhaustively evaluates palette combinations for block modes where that is practical.
-- **Global pre-quantize** is used for modes such as Atari GR.15 where exhaustive search is too large.
+- **Greedy global hull** is used for Atari GR.15: it adds four global Atari palette colors by reducing convex-hull coverage error, then runs a small swap refinement.
 - **Pixel-direct** is used for per-pixel modes such as QL and Atari GR.9.
 - **User-picked** is used for hardware-constrained global-pair modes such as TS 2068 64-column and Atari GR.8. GR.8 exposes Atari hue selectors plus foreground/background luma sliders.
-- **ZX81 character fit** converts the image to 32x24 fixed character cells and picks the closest normal or inverse-video glyph using multi-scale grayscale intensity matching. The `equalized` sub-mode applies the sRGB transfer to source luma before matching; the `linear` sub-mode matches directly in linear luma.
+- **ZX81 character fit** converts the image to 32x24 fixed character cells and picks the closest normal or inverse-video glyph using multi-scale grayscale intensity matching. By default it matches directly in linear luma; the perceptual-matching switch applies the sRGB transfer to source luma before matching (the former `equalized` sub-mode).
 
-Threshold-based dithers nudge non-uniform blocks toward distinct color pairs so gradients can dither instead of collapsing into flat color.
+Threshold-based dithers use linear RGB palette mixtures for multi-color palettes: the converter finds a small set of palette colors whose weighted average approximates the source color, then samples that mixture with the threshold matrix. `None` and error-propagation dithers use linear RGB nearest-color choices for multi-color palettes and ZX/Timex two-color attribute pixels, so color selection and propagated error are measured in the same space.
 
-OkLab color distance is experimental and is usually most helpful in higher-color modes with less saturated palettes, such as C64 and Pico-8; it is not generally better for every mode.
+An optional perceptual-matching switch (under the color strategy selector) changes nearest-color *selection* for the `None` dither to a gamma-encoded weighted RGB metric: distances are measured on sRGB-encoded channels weighted by the BT.709 coefficients. The per-channel sRGB transfer undoes the dark-tone compression of linear distances while keeping hue behavior aligned with plain RGB expectations. Block searches and Gauss-Seidel refinement score candidates in the same metric so the search matches the rendering. In the ZX81 mode the same switch applies the sRGB transfer to source luma before glyph matching. The switch applies only where real colors are quantized: error diffusion quantizes virtual accumulated values whose duty cycle is a linear-light quantity, so a perceptual metric there distorts color amounts badly on sparse palettes, and threshold dithers already match linear mixtures. The switch is hidden for both.
+
+ZX/Timex exhaustive modes offer an optional Gauss-Seidel refinement pass that re-scores the worst dithered attribute blocks against the realized output and swaps in better ink/paper pairs, iterating with re-dithers until stable. It applies only to `None` and error-diffusion dithers, where diffused error couples neighboring blocks. Ordered/threshold dithers are per-pixel deterministic with no cross-block coupling, and their per-pixel error metric mis-ranks pattern-dithered blocks (favoring dark, low-contrast solid pairs), so the refinement is disabled and hidden for them.
 
 ## Display Geometry
 
@@ -149,9 +153,8 @@ References:
 - **Atari palette**: NTSC-style approximation inspired by Altirra and related references
 - **QL screen layout**: RWAP Software QL Technical Guide and Dilwyn Jones QL references
 - **Dithering kernels**: Floyd-Steinberg, Atkinson, Stucki, Jarvis-Judice-Ninke, Sierra, Burkes
-- **Yliluoma algorithm**: Joel Yliluoma's color mixing article
 - **Hilbert curve**: David Hilbert's space-filling curve, applied here as an error-diffusion traversal
-- **Blue-noise approximation**: Jorge Jimenez, "Interleaved Gradient Noise"
+- **Blue noise**: deterministic generated rank map based on a best-void style placement pass
 
 ## License
 
