@@ -13,6 +13,7 @@ A dependency-free browser image converter for classic 8-bit and 16-bit machines.
 | TS 2068 | Standard | 256x192 | 8x8 | 2 of 16, Timex bright black is dark gray | 32/32/24/24 | `.scr` / `.tap` |
 | TS 2068 | Extended Color Mode | 256x192 | 8x1 | 2 of 16 per strip | 32/32/24/24 | `.scr` / `.tap` |
 | TS 2068 | 64-column hi-res | 512x192 | global | 8 hardware ink/paper pairs | 64/64/24/24 | `.scr` / `.tap` |
+| ZX Spectrum / TS 2068 | Mono | 256x192 | global | 2 of 8 user-picked ink/paper, no bright | 32/32/24/24 | `.scr` / `.tap` |
 | C64 | Hi-res bitmap NTSC/PAL | 320x200 | 8x8 | 2 of 16 | mode-specific | `.prg` |
 | C64 | Multicolor / Koala NTSC/PAL | 160x200 | 4x8 | 4 of 16 + auto global background | mode-specific | `.kla` |
 | Atari 800 | GR.15 / ANTIC E | 160x192 | global | 4 of 128 | 8/8/24/24 | `.mic` |
@@ -68,7 +69,7 @@ Color search strategies are mode-aware:
 - **Per-block best-fit** exhaustively evaluates palette combinations for block modes where that is practical.
 - **Greedy global hull** is used for Atari GR.15: it adds four global Atari palette colors by reducing convex-hull coverage error, then runs a small swap refinement.
 - **Pixel-direct** is used for per-pixel modes such as QL and Atari GR.9.
-- **User-picked** is used for hardware-constrained global-pair modes such as TS 2068 64-column and Atari GR.8. GR.8 exposes Atari hue selectors plus foreground/background luma sliders.
+- **User-picked** is used for hardware-constrained global-pair modes such as TS 2068 64-column, Atari GR.8, and Spectrum/Timex Mono. GR.8 exposes Atari hue selectors plus foreground/background luma sliders; the mono mode exposes individual ink and paper pickers limited to the 8 basic (non-bright) colors, e.g. for printable screens.
 - **ZX81 character fit** converts the image to 32x24 fixed character cells and picks the closest normal or inverse-video glyph using multi-scale grayscale intensity matching. By default it matches directly in linear luma; the perceptual-matching switch applies the sRGB transfer to source luma before matching (the former `equalized` sub-mode).
 
 Threshold-based dithers use linear RGB palette mixtures for multi-color palettes: the converter finds a small set of palette colors whose weighted average approximates the source color, then samples that mixture with the threshold matrix. `None` and error-propagation dithers use linear RGB nearest-color choices for multi-color palettes and ZX/Timex two-color attribute pixels, so color selection and propagated error are measured in the same space.

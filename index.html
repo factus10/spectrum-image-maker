@@ -832,6 +832,7 @@ svg {
           <option value="ts-standard">Standard Timex (256×192, 8×8 attrs)</option>
           <option value="ecm">Timex Extended Color (256×192, 8×1 attrs)</option>
           <option value="hires">Timex 64-col hi-res (512×192 mono)</option>
+          <option value="zx-mono">Spectrum/Timex Mono (256×192)</option>
         </optgroup>
         <optgroup label="Sinclair ZX81">
           <option value="zx81">ZX81 Character Graphics (32×24 chars)</option>
@@ -872,10 +873,28 @@ svg {
         <option value="6">Yellow ink / Blue paper</option>
         <option value="7" selected>White ink / Black paper</option>
       </select>
-      <!-- Hidden fields kept so old references still resolve; driven by hiresPair -->
-      <input id="inkColor" type="hidden" value="7">
-      <input id="paperColor" type="hidden" value="0">
       <input id="hiresBright" type="hidden" value="false">
+    </div>
+
+    <div id="monoColorsGroup" class="control-group" style="display: none">
+      <h3>Mono Ink / Paper</h3>
+      <label class="color-picker-main">
+        <input id="monoInkSwitch" type="checkbox" class="color-picker-switch">
+        <div class="color-picker-backdrop"></div>
+        <div id="monoInkButton" class="color-picker-button"></div>
+        Ink
+        <div id="monoInkDialog" class="color-picker-dialog"></div>
+      </label>
+      <label class="color-picker-main">
+        <input id="monoPaperSwitch" type="checkbox" class="color-picker-switch">
+        <div class="color-picker-backdrop"></div>
+        <div id="monoPaperButton" class="color-picker-button"></div>
+        Paper
+        <div id="monoPaperDialog" class="color-picker-dialog"></div>
+      </label>
+      <!-- Hidden storage for the picked indices (0-7); also used by profiles -->
+      <input id="inkColor" type="hidden" value="0">
+      <input id="paperColor" type="hidden" value="7">
     </div>
 
     <div id="atariGr8ColorsGroup" class="control-group" style="display: none">
@@ -1721,6 +1740,17 @@ const modes = {
     colorful: false, port: 6, label: "hires",
     ext: "scr", supportsTap: true,
   },
+  "zx-mono": {
+    w: 256, h: 192,
+    border: { left: 32, right: 32, top: 24, bottom: 24 },
+    borderPalette: PALETTE_NORMAL,
+    blockW: 256, blockH: 192, colorsPerBlock: 2,
+    palettes: [PALETTE_NORMAL],
+    mandatoryColor: null,
+    searchStrategy: "user-picked",
+    colorful: false, port: 0, label: "zx-mono",
+    ext: "scr", supportsTap: true,
+  },
   zx81: {
     w: 256, h: 192,
     border: { left: 32, right: 32, top: 24, bottom: 24 },
@@ -1996,6 +2026,13 @@ const UI = {
   loadNewBtn: byId("loadNewBtn"),
   lockAspect: byId("lockAspect"),
   modesFileInput: byId("modesFileInput"),
+  monoColorsGroup: byId("monoColorsGroup"),
+  monoInkButton: byId("monoInkButton"),
+  monoInkDialog: byId("monoInkDialog"),
+  monoInkSwitch: byId("monoInkSwitch"),
+  monoPaperButton: byId("monoPaperButton"),
+  monoPaperDialog: byId("monoPaperDialog"),
+  monoPaperSwitch: byId("monoPaperSwitch"),
   perceptualGroup: byId("perceptualGroup"),
   perceptualSwitch: byId("perceptualSwitch"),
   originalCanvas: byId("originalCanvas"),
@@ -2452,7 +2489,7 @@ function initPaletteStrip() {
     return;
   }
   const entries = paletteStripEntries(mode);
-  const disableable = !(mode === "hires" || mode === "ql-mode4" || mode === "zx81");
+  const disableable = !(mode === "hires" || mode === "zx-mono" || mode === "ql-mode4" || mode === "zx81");
   const canToggle = disableable && UI.advancedToggle && UI.advancedToggle.checked;
   for (const e of entries) {
     const d = document.createElement("div");
@@ -2522,6 +2559,39 @@ function initCropFillColorControls() {
   updateCropFillButton();
 }
 initCropFillColorControls();
+
+// Mono ink/paper pickers: same swatch popup as the border picker, but limited
+// to the 8 basic (non-bright) colors and without a "no color" option.
+function initMonoColorPicker(button, toggle, dialog, input) {
+  dialog.textContent = "";
+  const selected = Math.max(0, Math.min(7, parseInt(input.value, 10) || 0));
+  for (let i = 0; i < PALETTE_NORMAL.length; i++) {
+    const p = PALETTE_NORMAL[i];
+    let color = "#";
+    for (let c = 0; c < 3; c++) color += p[c].toString(16).toUpperCase().padStart(2, "0");
+    const swatch = document.createElement("div");
+    swatch.className = "color-picker-swatch";
+    swatch.style.backgroundColor = color;
+    swatch.dataset.color = color;
+    swatch.dataset.index = i;
+    dialog.appendChild(swatch);
+    if (i === selected) button.style.backgroundColor = color;
+  }
+  dialog.onclick = function (e) {
+    if (!e.target.classList.contains("color-picker-swatch")) return;
+    e.preventDefault();
+    button.style.backgroundColor = e.target.dataset.color;
+    input.value = e.target.dataset.index;
+    toggle.checked = false;
+    if (sourceImage) convert();
+  };
+}
+
+function initMonoColorPickers() {
+  initMonoColorPicker(UI.monoInkButton, UI.monoInkSwitch, UI.monoInkDialog, UI.inkColor);
+  initMonoColorPicker(UI.monoPaperButton, UI.monoPaperSwitch, UI.monoPaperDialog, UI.paperColor);
+}
+initMonoColorPickers();
 
 // --- File handling ---
 UI.browseBtn.addEventListener("click", () => UI.fileInput.click());
@@ -2816,7 +2886,7 @@ function recommendSettings(analysis, mode) {
   if (analysis && analysis.klass === "lineart") dither = "ordered-bayer-8x8";
   // Mode-specific override: these modes always prefer error diffusion.
   if (
-    mode === "hires" || mode === "atari-gr8" || mode === "zx81" ||
+    mode === "hires" || mode === "zx-mono" || mode === "atari-gr8" || mode === "zx81" ||
     mode === "atari-gr9" || mode === "ql-mode8" || mode === "ql-mode4" ||
     mode === "atari-gr15" ||
     mode === "c64-hires-ntsc" || mode === "c64-koala-ntsc" ||
@@ -3268,6 +3338,7 @@ function updateModeUI() {
   const showPerceptual = perceptualMatchingAvailable(cfg, UI.ditherMode.value);
 
   setControlVisible(UI.hiresColorsGroup, mode === "hires");
+  setControlVisible(UI.monoColorsGroup, mode === "zx-mono");
   setControlVisible(UI.atariGr8ColorsGroup, mode === "atari-gr8");
   setControlVisible(UI.atariHueGroup, mode === "atari-gr9");
   setControlVisible(UI.ditherModeGroup, usesDither);
@@ -3582,6 +3653,8 @@ const conversionPipelineState = {
   colorStrategy: "segment-coverage",
   colorMasks: null,
   hiresPair: 0,
+  monoInk: 0,
+  monoPaper: 7,
   atariGr8FgHue: 0,
   atariGr8FgLuma: 7,
   atariGr8BgHue: 0,
@@ -3790,6 +3863,8 @@ function convert() {
   state.colorStrategy = UI.colorStrategy.value;
   state.colorMasks = enabledColorMasks(state.mode);
   state.hiresPair = parseInt(UI.hiresPair.value, 10) || 0;
+  state.monoInk = Math.max(0, Math.min(7, parseInt(UI.inkColor.value, 10) || 0));
+  state.monoPaper = Math.max(0, Math.min(7, parseInt(UI.paperColor.value, 10) || 0));
   state.atariGr8FgHue = parseInt(UI.atariGr8FgHue.value, 10);
   state.atariGr8FgLuma = parseInt(UI.atariGr8FgLuma.value, 10);
   state.atariGr8BgHue = parseInt(UI.atariGr8BgHue.value, 10);
@@ -4418,6 +4493,23 @@ function pipelineStageQuantizeMode(id) {
       blockIndices = [[pair]];
       attrs = state.attrsBuffer = ensureUint8Buffer(state.attrsBuffer, 1);
       attrs[0] = (bright << 6) | (paperIdx << 3) | inkIdx;
+    } else if (mode === "zx-mono") {
+      // Global two-color Spectrum screen (e.g. for printing): ink and paper
+      // picked individually from the 8 basic colors, BRIGHT/FLASH fixed at 0.
+      const inkIdx = state.monoInk;
+      const paperIdx = state.monoPaper;
+      const pal = palettes[0];
+      numAttrCols = 1;
+      numAttrRows = 1;
+      bW = screenW;
+      bH = screenH;
+      blockColors = [[[pal[inkIdx], pal[paperIdx]]]];
+      const pair = state.userPickedPairBuffer = ensureInt16Buffer(state.userPickedPairBuffer, 2);
+      pair[0] = inkIdx;
+      pair[1] = paperIdx;
+      blockIndices = [[pair]];
+      attrs = state.attrsBuffer = ensureUint8Buffer(state.attrsBuffer, 1);
+      attrs[0] = (paperIdx << 3) | inkIdx;
     } else if (mode === "atari-gr8") {
       const fgHue = Math.max(0, Math.min(15, state.atariGr8FgHue | 0));
       const fgLuma = Math.max(0, Math.min(7, state.atariGr8FgLuma | 0));
@@ -7286,6 +7378,11 @@ function buildBinaryExportData() {
   if (mode === "standard" || mode === "ts-standard") {
     bytes = generateStandardScreen(pixels, attrs, mode === "ts-standard" ? PALETTE_TS_BRIGHT : PALETTE_ZX_BRIGHT);
     blocks = [{ data: bytes, addr: 0x4000, name: "screen" }];
+  } else if (mode === "zx-mono") {
+    // Global ink/paper: expand the single attribute over all 768 cells.
+    const monoAttrs = new Uint8Array(768).fill(attrs[0]);
+    bytes = generateStandardScreen(pixels, monoAttrs, PALETTE_ZX_BRIGHT);
+    blocks = [{ data: bytes, addr: 0x4000, name: "screen" }];
   } else if (mode === "ecm") {
     const { pixels: pixBytes, attribs: attrBytes } = generateECMScreen(pixels, attrs);
     bytes = new Uint8Array(pixBytes.length + attrBytes.length);
@@ -8067,6 +8164,7 @@ function applyProfile(p) {
   UI.gammaVal.textContent = (parseInt(UI.gamma.value, 10) / 100).toFixed(2);
   updateAtariGr8LumaLabels();
   updateCRTSliderLabels();
+  initMonoColorPickers();
   initCRTBorderPicker();
   updateModeUI();
   updateCRTControlAvailability();
