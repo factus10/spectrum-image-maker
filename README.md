@@ -13,6 +13,7 @@ A dependency-free browser image converter for classic 8-bit and 16-bit machines.
 | TS 2068 | Standard | 256x192 | 8x8 | 2 of 16, Timex bright black is dark gray | 32/32/24/24 | `.scr` / `.tap` |
 | TS 2068 | Extended Color Mode | 256x192 | 8x1 | 2 of 16 per strip | 32/32/24/24 | `.scr` / `.tap` |
 | TS 2068 | 64-column hi-res | 512x192 | global | 8 hardware ink/paper pairs | 64/64/24/24 | `.scr` / `.tap` |
+| ZX Spectrum / TS 2068 | Mono | 256x192 | global | 2 of 8 user-picked ink/paper, no bright | 32/32/24/24 | `.scr` / `.tap` |
 | C64 | Hi-res bitmap NTSC/PAL | 320x200 | 8x8 | 2 of 16 | mode-specific | `.prg` |
 | C64 | Multicolor / Koala NTSC/PAL | 160x200 | 4x8 | 4 of 16 + auto global background | mode-specific | `.kla` |
 | Atari 800 | GR.15 / ANTIC E | 160x192 | global | 4 of 128 | 8/8/24/24 | `.mic` |
@@ -20,6 +21,10 @@ A dependency-free browser image converter for classic 8-bit and 16-bit machines.
 | Atari 800 | GR.9 | 80x192 | per-pixel | 16 luma shades of one hue | 4/4/24/24 | `.gr9` |
 | QL | Mode 8 / Low res | 256x256 | per-pixel | 8 | none | `_scr` |
 | QL | Mode 4 / Hi-res | 512x256 | per-pixel | 4 fixed colors | none | `_scr` |
+| SAM Coupé | Mode 1 | 256x192 | 8x8 | 2 per cell of a 16-color CLUT (chosen from 128) | 32/32/24/24 | `.ss1` |
+| SAM Coupé | Mode 2 | 256x192 | 8x1 | 2 per cell of a 16-color CLUT (chosen from 128) | 32/32/24/24 | `.ss2` |
+| SAM Coupé | Mode 3 | 512x192 | global | 4 of 128 | 64/64/24/24 | `.ss3` |
+| SAM Coupé | Mode 4 | 256x192 | global | 16 of 128 | 32/32/24/24 | `.ss4` |
 | Pico-8 | Standard palette | 128x128 | per-pixel | 16 fixed | 4:3 side border | `.bin` + optional hex `.txt` |
 
 Visible borders are listed as left/right/top/bottom in mode pixels. Border color palettes are mode-aware: ZX81 uses a fixed white border, ZX Spectrum and most Timex modes use the 8 basic non-bright colors, TS 2068 hi-res follows the selected paper color, C64 modes use the active C64 palette, and modes without known border color control default to black.
@@ -66,14 +71,16 @@ Color search strategies are mode-aware:
 - **Best simplex coverage** is the default for C64 multicolor modes. It scores each four-color candidate set by how well its linear RGB convex hull covers the original block.
 - **Weighted average pair fit** scores candidate color pairs by how well a blend can match the block average; ZX/Timex attribute modes use linear RGB for this scoring to match their final pixel decisions.
 - **Per-block best-fit** exhaustively evaluates palette combinations for block modes where that is practical.
-- **Greedy global hull** is used for Atari GR.15: it adds four global Atari palette colors by reducing convex-hull coverage error, then runs a small swap refinement.
+- **Greedy global hull** is used for Atari GR.15 and SAM mode 3: it adds four global palette colors by reducing convex-hull coverage error, then runs a small swap refinement.
+- **Greedy pair-segment coverage** is used for global palettes larger than four colors (SAM mode 4's 16 of 128), where per-sample hull coverage is impractical: each slot adds the color that most reduces the summed distance from every sample to its nearest single color or two-color mixing segment of the selection — the mixes two-color dithering actually renders — followed by swap refinement. With the perceptual-matching switch on, mix points stay in linear light but residuals are judged with first-order perceptual weights.
+- **SAM CLUT** (SAM modes 1/2) first picks a 16-entry CLUT from the 128-color SAM palette with the pair-segment coverage selection, distributes it across the two 8-color halves by interleaving luma ranks so both halves span the full luma range (the attribute BRIGHT bit selects a half for both ink and paper, as on the hardware), then runs the regular ZX per-block attribute search over the halves, including the selectable ZX color strategies and Gauss-Seidel refinement.
 - **Pixel-direct** is used for per-pixel modes such as QL and Atari GR.9.
-- **User-picked** is used for hardware-constrained global-pair modes such as TS 2068 64-column and Atari GR.8. GR.8 exposes Atari hue selectors plus foreground/background luma sliders.
+- **User-picked** is used for hardware-constrained global-pair modes such as TS 2068 64-column, Atari GR.8, and Spectrum/Timex Mono. GR.8 exposes Atari hue selectors plus foreground/background luma sliders; the mono mode exposes individual ink and paper pickers limited to the 8 basic (non-bright) colors, e.g. for printable screens.
 - **ZX81 character fit** converts the image to 32x24 fixed character cells and picks the closest normal or inverse-video glyph using multi-scale grayscale intensity matching. By default it matches directly in linear luma; the perceptual-matching switch applies the sRGB transfer to source luma before matching (the former `equalized` sub-mode).
 
 Threshold-based dithers use linear RGB palette mixtures for multi-color palettes: the converter finds a small set of palette colors whose weighted average approximates the source color, then samples that mixture with the threshold matrix. `None` and error-propagation dithers use linear RGB nearest-color choices for multi-color palettes and ZX/Timex two-color attribute pixels, so color selection and propagated error are measured in the same space.
 
-An optional perceptual-matching switch (under the color strategy selector) changes nearest-color *selection* for the `None` dither to a gamma-encoded weighted RGB metric: distances are measured on sRGB-encoded channels weighted by the BT.709 coefficients. The per-channel sRGB transfer undoes the dark-tone compression of linear distances while keeping hue behavior aligned with plain RGB expectations. Block searches and Gauss-Seidel refinement score candidates in the same metric so the search matches the rendering. In the ZX81 mode the same switch applies the sRGB transfer to source luma before glyph matching. The switch applies only where real colors are quantized: error diffusion quantizes virtual accumulated values whose duty cycle is a linear-light quantity, so a perceptual metric there distorts color amounts badly on sparse palettes, and threshold dithers already match linear mixtures. The switch is hidden for both.
+An optional perceptual-matching switch (under the color strategy selector) changes nearest-color *selection* for the `None` dither to a gamma-encoded weighted RGB metric: distances are measured on sRGB-encoded channels weighted by the BT.709 coefficients. The per-channel sRGB transfer undoes the dark-tone compression of linear distances while keeping hue behavior aligned with plain RGB expectations. Block searches and Gauss-Seidel refinement score candidates in the same metric so the search matches the rendering. In the ZX81 mode the same switch applies the sRGB transfer to source luma before glyph matching, and for SAM modes 1/2/4 it additionally weights the global palette-selection scoring perceptually (under any dither — selecting which colors exist is a judgment of real colors). Per-pixel matching stays linear elsewhere: error diffusion quantizes virtual accumulated values whose duty cycle is a linear-light quantity, so a perceptual metric there distorts color amounts badly on sparse palettes, and threshold dithers already match linear mixtures.
 
 ZX/Timex exhaustive modes offer an optional Gauss-Seidel refinement pass that re-scores the worst dithered attribute blocks against the realized output and swaps in better ink/paper pairs, iterating with re-dithers until stable. It applies only to `None` and error-diffusion dithers, where diffused error couples neighboring blocks. Ordered/threshold dithers are per-pixel deterministic with no cross-block coupling, and their per-pixel error metric mis-ranks pattern-dithered blocks (favoring dark, low-contrast solid pairs), so the refinement is disabled and hidden for them.
 
@@ -95,6 +102,8 @@ The app displays each mode as part of a 4:3 visible screen, using border dimensi
 | Atari GR.9 | 88x240 | 3.636 |
 | QL Mode 8 | 256x256 | 1.333 |
 | QL Mode 4 | 512x256 | 0.667 |
+| SAM Mode 1 / 2 / 4 | 320x240 | 1.000 |
+| SAM Mode 3 | 640x240 | 0.500 |
 | Pico-8 | 170.667x128 | 1.000 |
 
 Pico-8 also uses an output pre-scale of `2` before output effects, so CRT-style processing works on a larger image without changing the exported 128x128 pixel data.
@@ -115,6 +124,10 @@ Image export produces sharp PNG/JPG files at 1x, 2x, or 4x with the active conve
 | Atari GR.8 | `.gr8`, raw 1 bit/pixel bitmap |
 | Atari GR.9 | `.gr9`, raw 4 bits/pixel luma bitmap |
 | QL Mode 4 / Mode 8 | `_scr`, direct QL screen memory dump |
+| SAM Coupé Mode 1 | `.ss1`, 6912 bytes screen + 41 bytes palette = 6953 bytes |
+| SAM Coupé Mode 2 | `.ss2`, 14336 bytes screen (incl. 2K padding) + 41 bytes palette = 14377 bytes |
+| SAM Coupé Mode 3 | `.ss3`, 24576 bytes screen + 41 bytes palette = 24617 bytes |
+| SAM Coupé Mode 4 | `.ss4`, 24576 bytes screen + 41 bytes palette = 24617 bytes |
 | Pico-8 | `.bin` and optional hex `.txt` |
 
 ZX/Timex modes additionally support `.tap` tape-image export with correctly addressed CODE blocks.
@@ -130,6 +143,8 @@ C64: `.prg` and `.kla` files use standard bitmap/Koala-style layouts and can be 
 Atari 800: `.mic` loads in MicroPainter-compatible tools. `.gr8` and `.gr9` are raw display-memory images. GR.8 color choices affect preview and 1-bit conversion, but the raw `.gr8` payload contains only bitmap bits.
 
 QL: `_scr` is a direct dump of screen RAM at base `$20000`, loadable in common QL emulators with commands such as `LBYTES file,131072`.
+
+SAM Coupé: `.ss1`-`.ss4` are SAM SCREEN$ files (`LOAD "file" SCREEN$`, loadable in SimCoupe): the mode's screen memory as-is, followed by a 41-byte palette trailer — 16 CLUT bytes plus 4 mode-3 store bytes for each of the two flash phases (written identical here), then a `0xFF` terminator; no line-interrupt records are emitted. Palette bytes are 7-bit SAM colors (GRN1 RED1 BLU1 BRIGHT GRN0 RED0 BLU0; BRIGHT adds a half step to all guns). Mode 1 uses the Spectrum-interleaved bitmap layout; mode 2 is linear with attributes at offset 8192; both use Spectrum-style attribute bytes whose BRIGHT bit selects the CLUT half (note: some references describe mode 2 attributes as free paper/ink nibbles, but the SimCoupe reference emulator decodes them exactly like mode 1). Mode 3 pixel values 1 and 2 are fetched from CLUT entries 2 and 1 respectively, so the `.ss3` CLUT is written swap-adjusted while the mode-3 store bytes hold the colors in pixel-value order.
 
 ## Running Locally
 
