@@ -1,0 +1,49 @@
+name: Deploy to GitHub Pages
+
+# Replaces the legacy "Deploy from a branch" Pages build with an explicit,
+# cancellable GitHub Actions deployment.
+
+on:
+  # Deploy whatever is on the default branch after every push.
+  push:
+    branches: [main]
+  # Allow manual runs from the Actions tab.
+  workflow_dispatch:
+
+# Least-privilege token scopes required to publish to Pages.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; never cancel an in-progress production deploy.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        # enablement: true switches the repo's Pages source to "GitHub Actions"
+        # on the first run, retiring the legacy branch-based build type.
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload site artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # The site is served straight from the repository root.
+          path: .
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
