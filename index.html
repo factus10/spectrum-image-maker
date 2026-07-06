@@ -837,6 +837,16 @@ svg {
         <optgroup label="Sinclair ZX81">
           <option value="zx81">ZX81 Character Graphics (32×24 chars)</option>
         </optgroup>
+        <optgroup label="Sinclair QL">
+          <option value="ql-mode8">QL Mode 8 / Low Res (256×256, 8col)</option>
+          <option value="ql-mode4">QL Mode 4 / High Res (512×256, 4col)</option>
+        </optgroup>
+        <optgroup label="SAM Coupé">
+          <option value="sam-mode1">SAM Mode 1 (256×192, 8×8 attrs, 16 of 128)</option>
+          <option value="sam-mode2">SAM Mode 2 (256×192, 8×1 attrs, 16 of 128)</option>
+          <option value="sam-mode3">SAM Mode 3 (512×192, 4 of 128)</option>
+          <option value="sam-mode4">SAM Mode 4 (256×192, 16 of 128)</option>
+        </optgroup>
         <optgroup label="Commodore 64 NTSC">
           <option value="c64-hires-ntsc">C64 NTSC Hi-res (320×200, 2/16 per 8×8)</option>
           <option value="c64-koala-ntsc">C64 NTSC Multicolor / Koala (160×200)</option>
@@ -849,10 +859,6 @@ svg {
           <option value="atari-gr15">Atari GR.15 / ANTIC E (160×192, 4col)</option>
           <option value="atari-gr8">Atari GR.8 (320×192, 2col)</option>
           <option value="atari-gr9">Atari GR.9 (80×192, 16 lumas)</option>
-        </optgroup>
-        <optgroup label="Sinclair QL">
-          <option value="ql-mode8">QL Mode 8 / Low Res (256×256, 8col)</option>
-          <option value="ql-mode4">QL Mode 4 / High Res (512×256, 4col)</option>
         </optgroup>
         <optgroup label="Pico-8">
           <option value="pico8">Pico-8 Standard Palette (128×128, 16col)</option>
@@ -1396,6 +1402,37 @@ function atariLumaPalette(hue) {
   return paletteAtariLuma[index];
 }
 
+// --- SAM Coupé palette (128 colors, 7-bit) ---
+// Bit layout: 0=BLU0, 1=RED0, 2=GRN0, 3=BRIGHT (half step on all guns),
+// 4=BLU1, 5=RED1, 6=GRN1. Gun level = hi*4 + lo*2 + bright, mapped through a
+// linear 0..7 intensity ramp (matches SimCoupe and scrimage output).
+const SAM_PALETTE_INTENSITY = [0x00, 0x24, 0x49, 0x6D, 0x92, 0xB6, 0xDB, 0xFF];
+
+function buildSamPalette() {
+  const colors = new Array(128);
+  for (let value = 0; value < 128; value++) {
+    const bright = (value >> 3) & 1;
+    const r = ((value >> 3) & 4) | (value & 2) | bright;
+    const g = ((value >> 4) & 4) | ((value >> 1) & 2) | bright;
+    const b = ((value >> 2) & 4) | ((value << 1) & 2) | bright;
+    colors[value] = [SAM_PALETTE_INTENSITY[r], SAM_PALETTE_INTENSITY[g], SAM_PALETTE_INTENSITY[b]];
+  }
+  return colors;
+}
+
+const paletteSam = buildSamPalette();
+
+// SAM BASIC default CLUT: Spectrum-like colors 0-7 (n*0x11), then the same
+// with the BRIGHT bit for entries 8-15 (bright black is a dark gray).
+const SAM_DEFAULT_CLUT = [
+  0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+  0x08, 0x19, 0x2A, 0x3B, 0x4C, 0x5D, 0x6E, 0x7F,
+];
+const paletteSamClut16 = SAM_DEFAULT_CLUT.map(value => paletteSam[value]);
+// The mode-3 store bytes in the .ssN palette trailer for non-mode-3 files
+// (matches the scrimage converter's output).
+const SAM_MODE3_STORE_DEFAULT = [0x00, 0x11, 0x22, 0x7F];
+
 const PALETTE_PICO8 = [
   [0x00, 0x00, 0x00], // black
   [0x1D, 0x2B, 0x53], // dark-blue
@@ -1750,6 +1787,50 @@ const modes = {
     searchStrategy: "user-picked",
     colorful: false, port: 0, label: "zx-mono",
     ext: "scr", supportsTap: true,
+  },
+  "sam-mode1": {
+    w: 256, h: 192,
+    border: { left: 32, right: 32, top: 24, bottom: 24 },
+    borderPalette: paletteSamClut16,
+    blockW: 8, blockH: 8, colorsPerBlock: 2,
+    palettes: [paletteSam],
+    mandatoryColor: null,
+    searchStrategy: "sam-clut",
+    colorful: true, label: "sam-mode1",
+    ext: "ss1", supportsTap: false,
+  },
+  "sam-mode2": {
+    w: 256, h: 192,
+    border: { left: 32, right: 32, top: 24, bottom: 24 },
+    borderPalette: paletteSamClut16,
+    blockW: 8, blockH: 1, colorsPerBlock: 2,
+    palettes: [paletteSam],
+    mandatoryColor: null,
+    searchStrategy: "sam-clut",
+    colorful: true, label: "sam-mode2",
+    ext: "ss2", supportsTap: false,
+  },
+  "sam-mode3": {
+    w: 512, h: 192,
+    border: { left: 64, right: 64, top: 24, bottom: 24 },
+    borderPalette: paletteSamClut16,
+    blockW: 512, blockH: 192, colorsPerBlock: 4,
+    palettes: [paletteSam],
+    mandatoryColor: null,
+    searchStrategy: "global-prequantize",
+    colorful: true, label: "sam-mode3",
+    ext: "ss3", supportsTap: false,
+  },
+  "sam-mode4": {
+    w: 256, h: 192,
+    border: { left: 32, right: 32, top: 24, bottom: 24 },
+    borderPalette: paletteSamClut16,
+    blockW: 256, blockH: 192, colorsPerBlock: 16,
+    palettes: [paletteSam],
+    mandatoryColor: null,
+    searchStrategy: "global-prequantize",
+    colorful: true, label: "sam-mode4",
+    ext: "ss4", supportsTap: false,
   },
   zx81: {
     w: 256, h: 192,
@@ -2123,6 +2204,10 @@ function ensureBlockGrid(grid, rows, cols) {
   return grid;
 }
 
+// All-enabled masks for the two SAM CLUT halves: user color disabling applies
+// to the 128-color SAM palette during CLUT selection, not to the halves.
+const samFullColorMasks = [new Uint8Array(8).fill(1), new Uint8Array(8).fill(1)];
+
 function buildZXCandidatePairs(colorMasks, requireDistinct) {
   const pairs = [];
   let o = 0;
@@ -2443,6 +2528,170 @@ function chooseGreedyHullPaletteColors(out, samples, palette, colorMask, colorCo
   }
 
   return bestError;
+}
+
+let selectionDistBuffer = null;
+
+// Weighted squared distance from a sample to a single color.
+function weightedColorDist(sr, sg, sb, wr, wg, wb, c) {
+  const dr = sr - c[0], dg = sg - c[1], db = sb - c[2];
+  return wr * dr * dr + wg * dg * dg + wb * db * db;
+}
+
+// Weighted squared distance from a sample to the mixing segment between
+// colors a and b. The projection minimizes the weighted residual, so the
+// closest reachable two-color mix is found in the same metric it is judged.
+function weightedSegmentDist(sr, sg, sb, wr, wg, wb, a, b) {
+  const dr = b[0] - a[0], dg = b[1] - a[1], db = b[2] - a[2];
+  const er = sr - a[0], eg = sg - a[1], eb = sb - a[2];
+  const denom = wr * dr * dr + wg * dg * dg + wb * db * db;
+  let t = denom > 1e-12 ? (wr * er * dr + wg * eg * dg + wb * eb * db) / denom : 0;
+  if (t < 0) t = 0; else if (t > 1) t = 1;
+  const rr = er - t * dr, rg = eg - t * dg, rb = eb - t * db;
+  return wr * rr * rr + wg * rg * rg + wb * rb * rb;
+}
+
+// Derivative of the linear->sRGB transfer, for first-order perceptual weights.
+function srgbTransferSlope(c) {
+  return c <= 0.0031308 ? 12.92 : (1.055 / 2.4) * Math.pow(Math.max(c, 0.0031308), 1 / 2.4 - 1);
+}
+
+// Per-sample squared channel weights for palette selection scoring: all ones
+// for plain linear scoring, or the squared local derivative of the perceptual
+// metric (BT.709 coefficient times the sRGB transfer slope at the sample) so
+// residuals are judged perceptually while mix points stay in linear light.
+function fillSelectionSampleWeights(weights, samples, sampleCount, perceptual) {
+  if (!perceptual) {
+    weights.fill(1, 0, sampleCount * 3);
+    return;
+  }
+  for (let i = 0; i < sampleCount * 3; i += 3) {
+    const wr = 0.2126 * srgbTransferSlope(samples[i]);
+    const wg = 0.7152 * srgbTransferSlope(samples[i + 1]);
+    const wb = 0.0722 * srgbTransferSlope(samples[i + 2]);
+    weights[i] = wr * wr;
+    weights[i + 1] = wg * wg;
+    weights[i + 2] = wb * wb;
+  }
+}
+
+// Greedy pair-segment coverage selection for global palettes above four
+// colors (SAM CLUT and mode 4), with swap refinement. Each sample is scored
+// by its weighted distance to the nearest single color or two-color mixing
+// segment of the selection — the mixes two-color dithering actually renders.
+// Full convex-hull coverage (used for the 4-color modes) both saturates and
+// explodes combinatorially at 16 colors, while plain nearest-color error
+// ignores mixing entirely and wastes slots on synthesizable interior colors.
+function chooseGreedySegmentPaletteColors(out, samples, sampleWeights, palette, colorMask, colorCount, colors) {
+  const sampleCount = (samples.length / 3) | 0;
+  let dist = selectionDistBuffer;
+  if (!dist || dist.length < sampleCount) dist = selectionDistBuffer = new Float32Array(sampleCount);
+  dist.fill(Infinity, 0, sampleCount);
+  const fallback = firstEnabledPaletteIndex(palette, colorMask);
+  let totalError = 0;
+
+  for (let slot = 0; slot < colorCount; slot++) {
+    let bestIndex = -1;
+    let bestSlotError = Infinity;
+    for (let i = 0; i < palette.length; i++) {
+      if ((colorMask && !colorMask[i]) || selectedIndexPosition(out, slot, i) >= 0) continue;
+      const cand = palette[i];
+      let error = 0;
+      for (let s = 0, si = 0; s < sampleCount; s++, si += 3) {
+        const sr = samples[si], sg = samples[si + 1], sb = samples[si + 2];
+        const wr = sampleWeights[si], wg = sampleWeights[si + 1], wb = sampleWeights[si + 2];
+        let d = dist[s];
+        const dp = weightedColorDist(sr, sg, sb, wr, wg, wb, cand);
+        if (dp < d) d = dp;
+        for (let k = 0; k < slot; k++) {
+          const ds = weightedSegmentDist(sr, sg, sb, wr, wg, wb, cand, colors[k]);
+          if (ds < d) d = ds;
+        }
+        error += d;
+        if (error >= bestSlotError) break;
+      }
+      if (error < bestSlotError) {
+        bestSlotError = error;
+        bestIndex = i;
+      }
+    }
+    if (bestIndex < 0) bestIndex = fallback;
+    out[slot] = bestIndex;
+    const chosen = palette[bestIndex];
+    colors[slot] = chosen;
+    for (let s = 0, si = 0; s < sampleCount; s++, si += 3) {
+      const sr = samples[si], sg = samples[si + 1], sb = samples[si + 2];
+      const wr = sampleWeights[si], wg = sampleWeights[si + 1], wb = sampleWeights[si + 2];
+      let d = weightedColorDist(sr, sg, sb, wr, wg, wb, chosen);
+      for (let k = 0; k < slot; k++) {
+        const ds = weightedSegmentDist(sr, sg, sb, wr, wg, wb, chosen, colors[k]);
+        if (ds < d) d = ds;
+      }
+      if (d < dist[s]) dist[s] = d;
+    }
+    totalError = bestSlotError;
+  }
+
+  // Swap refinement: retry each slot against all candidates with the rest of
+  // the selection fixed. Per slot, dist is first rebuilt from the points and
+  // segments that do not involve the slot's color, so each candidate then
+  // only costs its own point plus segments to the other selected colors.
+  for (let pass = 0; pass < 2; pass++) {
+    let improved = false;
+    for (let slot = 0; slot < colorCount; slot++) {
+      const originalIndex = out[slot];
+      for (let s = 0, si = 0; s < sampleCount; s++, si += 3) {
+        const sr = samples[si], sg = samples[si + 1], sb = samples[si + 2];
+        const wr = sampleWeights[si], wg = sampleWeights[si + 1], wb = sampleWeights[si + 2];
+        let best = Infinity;
+        for (let k = 0; k < colorCount; k++) {
+          if (k === slot) continue;
+          const dp = weightedColorDist(sr, sg, sb, wr, wg, wb, colors[k]);
+          if (dp < best) best = dp;
+          for (let j = k + 1; j < colorCount; j++) {
+            if (j === slot) continue;
+            const ds = weightedSegmentDist(sr, sg, sb, wr, wg, wb, colors[k], colors[j]);
+            if (ds < best) best = ds;
+          }
+        }
+        dist[s] = best;
+      }
+      let bestIndex = originalIndex;
+      let bestSlotError = totalError;
+      for (let i = 0; i < palette.length; i++) {
+        if ((colorMask && !colorMask[i]) || selectedIndexPosition(out, colorCount, i, slot) >= 0) continue;
+        const cand = palette[i];
+        let error = 0;
+        for (let s = 0, si = 0; s < sampleCount; s++, si += 3) {
+          const sr = samples[si], sg = samples[si + 1], sb = samples[si + 2];
+          const wr = sampleWeights[si], wg = sampleWeights[si + 1], wb = sampleWeights[si + 2];
+          let d = dist[s];
+          const dp = weightedColorDist(sr, sg, sb, wr, wg, wb, cand);
+          if (dp < d) d = dp;
+          for (let k = 0; k < colorCount; k++) {
+            if (k === slot) continue;
+            const ds = weightedSegmentDist(sr, sg, sb, wr, wg, wb, cand, colors[k]);
+            if (ds < d) d = ds;
+          }
+          error += d;
+          if (error >= bestSlotError) break;
+        }
+        if (error < bestSlotError) {
+          bestSlotError = error;
+          bestIndex = i;
+        }
+      }
+      colors[slot] = palette[bestIndex];
+      out[slot] = bestIndex;
+      if (bestIndex !== originalIndex) {
+        totalError = bestSlotError;
+        improved = true;
+      }
+    }
+    if (!improved) break;
+  }
+
+  return totalError;
 }
 
 function paletteStripEntries(mode) {
@@ -2888,7 +3137,7 @@ function recommendSettings(analysis, mode) {
   if (
     mode === "hires" || mode === "zx-mono" || mode === "atari-gr8" || mode === "zx81" ||
     mode === "atari-gr9" || mode === "ql-mode8" || mode === "ql-mode4" ||
-    mode === "atari-gr15" ||
+    mode === "atari-gr15" || mode === "sam-mode3" || mode === "sam-mode4" ||
     mode === "c64-hires-ntsc" || mode === "c64-koala-ntsc" ||
     mode === "c64-hires-pal" || mode === "c64-koala-pal"
   ) {
@@ -3257,7 +3506,14 @@ const C64_KOALA_COLOR_STRATEGIES = ["simplex-coverage", "per-block"];
 const ROW_DIFFUSION_DITHER_MODES = ["floyd-steinberg", "atkinson", "stucki", "jarvis-judice-ninke", "burkes", "sierra-lite"];
 
 function isZXAttributeMode(mode) {
-  return mode === "standard" || mode === "ts-standard" || mode === "ecm";
+  return mode === "standard" || mode === "ts-standard" || mode === "ecm" ||
+         mode === "sam-mode1" || mode === "sam-mode2";
+}
+
+// ZX-style per-block ink/paper attribute search runs for the "exhaustive" ZX
+// modes and for the SAM CLUT modes (after their global CLUT selection).
+function isZXSearchStrategy(strategy) {
+  return strategy === "exhaustive" || strategy === "sam-clut";
 }
 
 function isC64HiresMode(mode) {
@@ -3272,14 +3528,25 @@ function modeUsesDither(cfg) {
   return cfg.searchStrategy !== "zx81-character";
 }
 
+// Global palette selection with nearest/segment scoring, where the perceptual
+// metric is a valid judgment of real colors: the SAM CLUT modes and global
+// palettes above four colors. The 4-color hull-coverage modes model pure
+// linear-light mixing and stay linear.
+function modeUsesPaletteSelection(cfg) {
+  return cfg.searchStrategy === "sam-clut" ||
+    (cfg.searchStrategy === "global-prequantize" && cfg.colorsPerBlock > 4);
+}
+
 // Perceptual matching applies only where real colors are quantized: "none"
-// dithering and ZX81 glyph matching (the former "equalized" sub-mode).
-// Error diffusion quantizes virtual accumulated values whose duty cycle is a
-// linear-light quantity — a perceptual metric there distorts color amounts
-// badly on sparse palettes. Threshold dithers match linear mixtures and are
-// equally unaffected.
+// dithering, ZX81 glyph matching (the former "equalized" sub-mode), and
+// global palette selection scoring. Error diffusion quantizes virtual
+// accumulated values whose duty cycle is a linear-light quantity — a
+// perceptual metric there distorts color amounts badly on sparse palettes.
+// Threshold dithers match linear mixtures and are equally unaffected.
 function perceptualMatchingAvailable(cfg, ditherMode) {
-  return (modeUsesDither(cfg) && ditherMode === "none") || cfg.searchStrategy === "zx81-character";
+  return (modeUsesDither(cfg) && ditherMode === "none") ||
+    cfg.searchStrategy === "zx81-character" ||
+    modeUsesPaletteSelection(cfg);
 }
 
 function modeSupportsGridOverlay(cfg) {
@@ -3291,12 +3558,13 @@ function modeSupportsGaussSeidel(mode, cfg, ditherMode) {
   // error coupling, so Gauss-Seidel refinement has nothing to react to — and
   // its per-pixel error metric mis-ranks pattern-dithered blocks (prefers
   // dark, low-contrast solid pairs over correct high-contrast patterns).
-  return cfg.searchStrategy === "exhaustive" && isZXAttributeMode(mode) && !isThresholdDither(ditherMode);
+  return isZXSearchStrategy(cfg.searchStrategy) && isZXAttributeMode(mode) && !isThresholdDither(ditherMode);
 }
 
 function allowedColorStrategiesForMode(mode, cfg) {
-  if (cfg.searchStrategy !== "exhaustive") return [];
+  if (!isZXSearchStrategy(cfg.searchStrategy)) return [];
   if (isZXAttributeMode(mode)) return ZX_EXHAUSTIVE_COLOR_STRATEGIES;
+  if (cfg.searchStrategy !== "exhaustive") return [];
   if (isC64HiresMode(mode)) return C64_HIRES_COLOR_STRATEGIES;
   if (isC64KoalaMode(mode)) return C64_KOALA_COLOR_STRATEGIES;
   return [];
@@ -3650,11 +3918,14 @@ const conversionPipelineState = {
   cropFillLinear: new Float32Array([0, 0, 0, 1]),
   ditherMode: "floyd-steinberg",
   perceptual: false,
+  perceptualPalette: false,
   colorStrategy: "segment-coverage",
   colorMasks: null,
   hiresPair: 0,
   monoInk: 0,
   monoPaper: 7,
+  samClutBuffer: null,
+  selectionWeightsBuffer: null,
   atariGr8FgHue: 0,
   atariGr8FgLuma: 7,
   atariGr8BgHue: 0,
@@ -3859,7 +4130,12 @@ function convert() {
   state.cropFillLinear[2] = linearBySRGB[cropFillColor.b];
   state.cropFillLinear[3] = 1;
   state.ditherMode = UI.ditherMode.value;
-  state.perceptual = UI.perceptualSwitch.checked && perceptualMatchingAvailable(state.modeCfg, state.ditherMode);
+  state.perceptual = UI.perceptualSwitch.checked &&
+    (state.ditherMode === "none" || state.modeCfg.searchStrategy === "zx81-character");
+  // Separate flag for palette-selection scoring: it may be active under any
+  // dither (selection judges real colors), while state.perceptual must stay
+  // consistent with the per-pixel rendering metric.
+  state.perceptualPalette = UI.perceptualSwitch.checked && modeUsesPaletteSelection(state.modeCfg);
   state.colorStrategy = UI.colorStrategy.value;
   state.colorMasks = enabledColorMasks(state.mode);
   state.hiresPair = parseInt(UI.hiresPair.value, 10) || 0;
@@ -4323,6 +4599,8 @@ function pipelineStageQuantizeMode(id) {
       evalSource: state.evalSourceBuffer = ensureFloat32Buffer(state.evalSourceBuffer, evalSize),
       evalPair: [null, null],
       linearRgbTwoColor: true,
+      zxPalettes: palettes,
+      zxColorMasks: state.colorMasks,
       zxPairsAny: buildZXCandidatePairs(state.colorMasks, false),
       zxPairsDistinct: buildZXCandidatePairs(state.colorMasks, true),
     };
@@ -4335,6 +4613,54 @@ function pipelineStageQuantizeMode(id) {
       bestPair: state.zxBestPairBuffer = ensureInt16Buffer(state.zxBestPairBuffer, 2),
     };
     pipelineStageQuantizeZXExhaustiveBlocks(id);
+    return;
+  }
+  if (strategy === "sam-clut") {
+    // SAM modes 1/2: first pick the 16-entry CLUT from the 128-color SAM
+    // palette over image samples, then run the ZX attribute search on the two
+    // CLUT halves (pipelineStageQuantizeSamClut fills zxPalettes and pairs).
+    attrs = state.attrsBuffer = ensureUint8Buffer(state.attrsBuffer, numAttrCols * numAttrRows);
+    blockColors = state.blockColorsGridBuffer = ensureBlockGrid(state.blockColorsGridBuffer, numAttrRows, numAttrCols);
+    state.quantizeWork = {
+      resultLinear,
+      attrs,
+      blockColors,
+      blockIndices: null,
+      modeMeta,
+      bW,
+      bH,
+      numAttrCols,
+      numAttrRows,
+      strategy,
+      evalTemp: state.evalTempBuffer = ensureFloat32Buffer(state.evalTempBuffer, evalSize),
+      evalSource: state.evalSourceBuffer = ensureFloat32Buffer(state.evalSourceBuffer, evalSize),
+      evalPair: [null, null],
+      linearRgbTwoColor: true,
+      zxPalettes: null,
+      zxColorMasks: samFullColorMasks,
+      zxPairsAny: null,
+      zxPairsDistinct: null,
+    };
+    // Segment-coverage selection scales with samples x selected colors, so
+    // sample at a coarser stride than the 4-color hull modes.
+    const sampleStride = 8;
+    const sampleCols = Math.ceil(screenW / sampleStride);
+    const sampleRows = Math.ceil(screenH / sampleStride);
+    const sampleCount = sampleCols * sampleRows;
+    state.quantizePass = {
+      pal: palettes[0],
+      colorCount: 16,
+      colorMask: state.colorMasks[0],
+      sampleStride,
+      sampleCols,
+      sampleRows,
+      sampleCount,
+      samples: state.globalSamplesBuffer = ensureFloat32Buffer(state.globalSamplesBuffer, sampleCount * 3),
+      sampleOffset: 0,
+      selectedIndices: state.globalChosenIndicesBuffer = ensureInt16Buffer(state.globalChosenIndicesBuffer, 16),
+      selectedColors: state.globalChosenColorsBuffer || (state.globalChosenColorsBuffer = []),
+    };
+    pipelineStageQuantizeGlobalSamples(id);
     return;
   }
   if (strategy === "exhaustive" && (mode === "c64-hires-ntsc" || mode === "c64-hires-pal")) {
@@ -4416,14 +4742,18 @@ function pipelineStageQuantizeMode(id) {
       numAttrRows,
       strategy,
     };
-    const sampleCols = Math.ceil(screenW / 4);
-    const sampleRows = Math.ceil(screenH / 4);
-    const sampleCount = sampleCols * sampleRows;
     const colorCount = modeCfg.colorsPerBlock;
+    // Segment-coverage selection (above 4 colors) scales with samples x
+    // selected colors; sample it at a coarser stride than hull coverage.
+    const sampleStride = colorCount > 4 ? 8 : 4;
+    const sampleCols = Math.ceil(screenW / sampleStride);
+    const sampleRows = Math.ceil(screenH / sampleStride);
+    const sampleCount = sampleCols * sampleRows;
     state.quantizePass = {
       pal: palettes[0],
       colorCount,
       colorMask: state.colorMasks[0],
+      sampleStride,
       sampleCols,
       sampleRows,
       sampleCount,
@@ -4562,11 +4892,11 @@ function pipelineStageQuantizeZXExhaustiveBlocks(id) {
   }
   try {
     const screenW = state.screenWidth;
-    const palettes = state.palettes;
+    const palettes = q.zxPalettes;
     const ditherMode = state.ditherMode;
     const perceptual = state.perceptual;
     const colorStrategy = state.colorStrategy;
-    const colorMasks = state.colorMasks;
+    const colorMasks = q.zxColorMasks;
     const work = state.work;
     const bW = q.bW;
     const bH = q.bH;
@@ -5188,8 +5518,8 @@ function pipelineStageQuantizeGlobalSamples(id) {
     while (pass.sampleOffset < pass.sampleCount) {
       const end = Math.min(pass.sampleCount, pass.sampleOffset + GLOBAL_SAMPLE_CHUNK);
       for (let sample = pass.sampleOffset; sample < end; sample++) {
-        const x = (sample % pass.sampleCols) * 4;
-        const y = ((sample / pass.sampleCols) | 0) * 4;
+        const x = (sample % pass.sampleCols) * pass.sampleStride;
+        const y = ((sample / pass.sampleCols) | 0) * pass.sampleStride;
         const src = (y * width + x) * 3;
         const dst = sample * 3;
         pass.samples[dst] = Math.max(0, Math.min(1, work[src]));
@@ -5201,6 +5531,10 @@ function pipelineStageQuantizeGlobalSamples(id) {
     }
     if (pass.sampleOffset < pass.sampleCount) {
       pipelineSchedule(pipelineStageQuantizeGlobalSamples, id);
+      return;
+    }
+    if (state.quantizeWork && state.quantizeWork.strategy === "sam-clut") {
+      pipelineStageQuantizeSamClut(id);
       return;
     }
     pipelineStageQuantizeGlobalGreedyHull(id);
@@ -5222,17 +5556,99 @@ function pipelineStageQuantizeGlobalGreedyHull(id) {
   }
   try {
     pass.selectedColors.length = pass.colorCount;
-    chooseGreedyHullPaletteColors(
+    // Hull coverage enumerates simplexes per sample, which is infeasible for
+    // large color counts; use pair-segment coverage above 4 colors.
+    if (pass.colorCount > 4) {
+      const weights = state.selectionWeightsBuffer = ensureFloat32Buffer(state.selectionWeightsBuffer, pass.sampleCount * 3);
+      fillSelectionSampleWeights(weights, pass.samples, pass.sampleCount, state.perceptualPalette);
+      chooseGreedySegmentPaletteColors(
+        pass.selectedIndices,
+        pass.samples,
+        weights,
+        pass.pal,
+        pass.colorMask,
+        pass.colorCount,
+        pass.selectedColors
+      );
+    } else {
+      chooseGreedyHullPaletteColors(
+        pass.selectedIndices,
+        pass.samples,
+        pass.pal,
+        pass.colorMask,
+        pass.colorCount,
+        pass.selectedColors
+      );
+    }
+    pipelineStageQuantizeGlobalFinish(id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to choose global colors.");
+  }
+}
+
+// Stage 3f-alt: pick the 16-entry SAM CLUT for modes 1/2, split it into two
+// 8-color halves by luma (the attribute BRIGHT bit selects a half for both
+// ink and paper, mirroring Spectrum normal/bright semantics), then run the
+// regular ZX exhaustive attribute search over those halves.
+function pipelineStageQuantizeSamClut(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "quantize-sam-clut";
+  const q = state.quantizeWork;
+  const pass = state.quantizePass;
+  if (!q || !pass) {
+    pipelineFail(id, new Error("Missing SAM CLUT state"), "Unable to choose SAM palette.");
+    return;
+  }
+  try {
+    pass.selectedColors.length = pass.colorCount;
+    const weights = state.selectionWeightsBuffer = ensureFloat32Buffer(state.selectionWeightsBuffer, pass.sampleCount * 3);
+    fillSelectionSampleWeights(weights, pass.samples, pass.sampleCount, state.perceptualPalette);
+    chooseGreedySegmentPaletteColors(
       pass.selectedIndices,
       pass.samples,
+      weights,
       pass.pal,
       pass.colorMask,
       pass.colorCount,
       pass.selectedColors
     );
-    pipelineStageQuantizeGlobalFinish(id);
+    // Sort the 16 chosen palette indices by linear luma, then interleave the
+    // ranks across the two CLUT halves (even ranks -> CLUT 0-7, odd ranks ->
+    // CLUT 8-15). Each cell can only pair colors within one half, so both
+    // halves must span the full luma range — like the Spectrum's normal and
+    // bright palettes — or cells lose all luminance contrast.
+    const sorted = Array.from(pass.selectedIndices.subarray(0, pass.colorCount));
+    sorted.sort((a, b) => {
+      const ca = pass.pal[a], cb = pass.pal[b];
+      return (0.2126 * ca[0] + 0.7152 * ca[1] + 0.0722 * ca[2]) -
+             (0.2126 * cb[0] + 0.7152 * cb[1] + 0.0722 * cb[2]);
+    });
+    const clut = state.samClutBuffer = ensureInt16Buffer(state.samClutBuffer, 16);
+    const half0 = new Array(8);
+    const half1 = new Array(8);
+    for (let i = 0; i < 16; i++) {
+      const slot = ((i & 1) << 3) | (i >> 1);
+      clut[slot] = sorted[i];
+      if (i & 1) half1[i >> 1] = pass.pal[sorted[i]];
+      else half0[i >> 1] = pass.pal[sorted[i]];
+    }
+    q.modeMeta.samClut = clut;
+    q.zxPalettes = [half0, half1];
+    q.zxPairsAny = buildZXCandidatePairs(samFullColorMasks, false);
+    q.zxPairsDistinct = buildZXCandidatePairs(samFullColorMasks, true);
+    state.quantizePass = {
+      offset: 0,
+      colorCounts: [
+        state.zxColorCountBuffer0 = ensureUint8Buffer(state.zxColorCountBuffer0, 8),
+        state.zxColorCountBuffer1 = ensureUint8Buffer(state.zxColorCountBuffer1, 8),
+      ],
+      bestPair: state.zxBestPairBuffer = ensureInt16Buffer(state.zxBestPairBuffer, 2),
+    };
+    pipelineStageQuantizeZXExhaustiveBlocks(id);
   } catch (err) {
-    pipelineFail(id, err, "Unable to choose global colors.");
+    pipelineFail(id, err, "Unable to choose SAM palette.");
   }
 }
 
@@ -5253,6 +5669,7 @@ function pipelineStageQuantizeGlobalFinish(id) {
   const chosenColors = pass.selectedColors;
   q.blockColors[0][0] = chosenColors;
   q.blockIndices[0][0] = chosenIndices;
+  // Chosen global palette indices; used by the GR.15 and SAM 3/4 exporters.
   q.modeMeta.atariRegs = chosenIndices;
   q.attrs = null;
   state.quantizePass = null;
@@ -5942,8 +6359,8 @@ function pipelineStageFinishDitherPass(id) {
       state.gaussSeidel &&
       !isThresholdDither(state.ditherMode) &&
       q &&
-      q.strategy === "exhaustive" &&
-      (state.mode === "standard" || state.mode === "ts-standard" || state.mode === "ecm") &&
+      isZXSearchStrategy(q.strategy) &&
+      isZXAttributeMode(state.mode) &&
       q.attrs;
     if (needsGS) {
       pipelineStageAfterInitialDither(id);
@@ -6045,8 +6462,8 @@ function pipelineStageGSRefineBlocks(id) {
   try {
     const screenW = state.screenWidth;
     const work = state.work;
-    const palettes = state.palettes;
-    const colorMasks = state.colorMasks;
+    const palettes = q.zxPalettes;
+    const colorMasks = q.zxColorMasks;
     const ditherMode = state.ditherMode;
     const perceptual = state.perceptual;
     const total = q.numAttrRows * q.numAttrCols;
@@ -6827,6 +7244,167 @@ function generate64ColScreen(pixels, attrs) {
 }
 
 // ==============================================================
+// SAM Coupé SCREEN$ palette trailer (all .ssN formats):
+// 16 bytes CLUT (flash phase A) + 4 bytes mode-3 store +
+// 16 bytes CLUT (flash phase B) + 4 bytes mode-3 store +
+// 0xFF terminator (no line-interrupt records) = 41 bytes.
+// Flash phase B is a copy of A (no flashing in converted images).
+// ==============================================================
+function appendSamPaletteTrailer(out, offset, clut, mode3Store) {
+  for (let phase = 0; phase < 2; phase++) {
+    for (let i = 0; i < 16; i++) out[offset++] = clut[i] & 0x7F;
+    for (let i = 0; i < 4; i++) out[offset++] = mode3Store[i] & 0x7F;
+  }
+  out[offset] = 0xFF;
+}
+
+// ==============================================================
+// SAM Coupé Mode 1 (.ss1): 6144 bytes bitmap in ZX Spectrum interleaved
+// layout + 768 attribute bytes (FLASH=0, BRIGHT=CLUT half, paper, ink)
+// + 41-byte palette trailer = 6953 bytes.
+// ==============================================================
+function generateSamMode1(pixels, attrs, clut) {
+  const out = new Uint8Array(6953);
+  for (let y = 0; y < 192; y++) {
+    const addr = ((y & 0xC0) << 5) | ((y & 0x07) << 8) | ((y & 0x38) << 2);
+    const attrRow = (y >> 3) * 32;
+    for (let col = 0; col < 32; col++) {
+      const attr = attrs[attrRow + col];
+      const half = (attr >> 6) & 1;
+      const inkRGB = paletteSam[clut[half * 8 + (attr & 7)]];
+      const paperRGB = paletteSam[clut[half * 8 + ((attr >> 3) & 7)]];
+      let byte = 0;
+      for (let bit = 0; bit < 8; bit++) {
+        const pIdx = (y * 256 + col * 8 + bit) * 3;
+        const r = pixels[pIdx], g = pixels[pIdx + 1], b = pixels[pIdx + 2];
+        const inkDist = colorDistance(r, g, b, inkRGB[0], inkRGB[1], inkRGB[2]);
+        const paperDist = colorDistance(r, g, b, paperRGB[0], paperRGB[1], paperRGB[2]);
+        if (inkDist <= paperDist) byte |= (0x80 >> bit);
+      }
+      out[addr + col] = byte;
+    }
+  }
+  for (let i = 0; i < 768; i++) out[6144 + i] = attrs[i];
+  appendSamPaletteTrailer(out, 6912, clut, SAM_MODE3_STORE_DEFAULT);
+  return out;
+}
+
+// ==============================================================
+// SAM Coupé Mode 2 (.ss2): 6144 bytes linear bitmap (32 bytes/line,
+// MSB = leftmost pixel) + 2048 bytes padding to the 8K boundary +
+// 6144 attribute bytes (8x1 cells, same encoding as mode 1)
+// + 41-byte palette trailer = 14377 bytes.
+// ==============================================================
+function generateSamMode2(pixels, attrs, clut) {
+  const out = new Uint8Array(14377);
+  for (let y = 0; y < 192; y++) {
+    for (let col = 0; col < 32; col++) {
+      const cell = y * 32 + col;
+      const attr = attrs[cell];
+      const half = (attr >> 6) & 1;
+      const inkRGB = paletteSam[clut[half * 8 + (attr & 7)]];
+      const paperRGB = paletteSam[clut[half * 8 + ((attr >> 3) & 7)]];
+      let byte = 0;
+      for (let bit = 0; bit < 8; bit++) {
+        const pIdx = (y * 256 + col * 8 + bit) * 3;
+        const r = pixels[pIdx], g = pixels[pIdx + 1], b = pixels[pIdx + 2];
+        const inkDist = colorDistance(r, g, b, inkRGB[0], inkRGB[1], inkRGB[2]);
+        const paperDist = colorDistance(r, g, b, paperRGB[0], paperRGB[1], paperRGB[2]);
+        if (inkDist <= paperDist) byte |= (0x80 >> bit);
+      }
+      out[cell] = byte;
+      out[8192 + cell] = attr;
+    }
+  }
+  appendSamPaletteTrailer(out, 14336, clut, SAM_MODE3_STORE_DEFAULT);
+  return out;
+}
+
+// ==============================================================
+// SAM Coupé Mode 3 (.ss3): 512×192, 2 bits/pixel MSB-first, 128 bytes/line
+// = 24576 bytes + 41-byte palette trailer = 24617 bytes.
+// The display fetches pixel values 1 and 2 from CLUT entries 2 and 1
+// (swapped), so the CLUT is written swap-adjusted; the 4-byte mode-3 store
+// holds the colors in pixel-value order.
+// ==============================================================
+function generateSamMode3(pixels, chosenIndices) {
+  const out = new Uint8Array(24617);
+  const colors = [
+    paletteSam[chosenIndices[0]],
+    paletteSam[chosenIndices[1]],
+    paletteSam[chosenIndices[2]],
+    paletteSam[chosenIndices[3]],
+  ];
+  for (let y = 0; y < 192; y++) {
+    for (let xb = 0; xb < 128; xb++) {
+      let byte = 0;
+      for (let sx = 0; sx < 4; sx++) {
+        const pIdx = (y * 512 + xb * 4 + sx) * 3;
+        const r = pixels[pIdx], g = pixels[pIdx + 1], b = pixels[pIdx + 2];
+        let best = 0, bestD = Infinity;
+        for (let k = 0; k < 4; k++) {
+          const color = colors[k];
+          const d = colorDistance(r, g, b, color[0], color[1], color[2]);
+          if (d === 0) {
+            best = k;
+            break;
+          }
+          if (d < bestD) {
+            bestD = d;
+            best = k;
+          }
+        }
+        byte |= (best & 0x03) << ((3 - sx) * 2);
+      }
+      out[y * 128 + xb] = byte;
+    }
+  }
+  const clut = SAM_DEFAULT_CLUT.slice();
+  clut[0] = chosenIndices[0];
+  clut[1] = chosenIndices[2];
+  clut[2] = chosenIndices[1];
+  clut[3] = chosenIndices[3];
+  appendSamPaletteTrailer(out, 24576, clut, chosenIndices);
+  return out;
+}
+
+// ==============================================================
+// SAM Coupé Mode 4 (.ss4): 256×192, 4 bits/pixel (high nibble = left pixel),
+// 128 bytes/line = 24576 bytes + 41-byte palette trailer = 24617 bytes.
+// ==============================================================
+function generateSamMode4(pixels, chosenIndices) {
+  const out = new Uint8Array(24617);
+  const colors = new Array(16);
+  for (let i = 0; i < 16; i++) colors[i] = paletteSam[chosenIndices[i]];
+  for (let y = 0; y < 192; y++) {
+    for (let xb = 0; xb < 128; xb++) {
+      let byte = 0;
+      for (let sx = 0; sx < 2; sx++) {
+        const pIdx = (y * 256 + xb * 2 + sx) * 3;
+        const r = pixels[pIdx], g = pixels[pIdx + 1], b = pixels[pIdx + 2];
+        let best = 0, bestD = Infinity;
+        for (let k = 0; k < 16; k++) {
+          const color = colors[k];
+          const d = colorDistance(r, g, b, color[0], color[1], color[2]);
+          if (d === 0) {
+            best = k;
+            break;
+          }
+          if (d < bestD) {
+            bestD = d;
+            best = k;
+          }
+        }
+        byte |= (best & 0x0F) << ((1 - sx) * 4);
+      }
+      out[y * 128 + xb] = byte;
+    }
+  }
+  appendSamPaletteTrailer(out, 24576, chosenIndices, SAM_MODE3_STORE_DEFAULT);
+  return out;
+}
+
+// ==============================================================
 // C64 Hi-res (Art Studio .prg): load address + 8000 bitmap + 1000 screen
 // Total: 2 + 8000 + 1000 = 9002 bytes
 // ==============================================================
@@ -7401,6 +7979,14 @@ function buildBinaryExportData() {
       { data: df1, addr: 0x4000, name: "hi-df1" },
       { data: df2, addr: 0x6000, name: "hi-df2" },
     ];
+  } else if (mode === "sam-mode1") {
+    bytes = generateSamMode1(pixels, attrs, modeMeta.samClut);
+  } else if (mode === "sam-mode2") {
+    bytes = generateSamMode2(pixels, attrs, modeMeta.samClut);
+  } else if (mode === "sam-mode3") {
+    bytes = generateSamMode3(pixels, modeMeta.atariRegs);
+  } else if (mode === "sam-mode4") {
+    bytes = generateSamMode4(pixels, modeMeta.atariRegs);
   } else if (mode === "c64-hires-ntsc" || mode === "c64-hires-pal") {
     const blockColors = reconstructBlockColors(blockIndices, modeCfg.palettes[0]);
     bytes = generateC64Hires(pixels, blockColors, blockIndices);
