@@ -1005,6 +1005,10 @@ svg {
         <button id="exportBin" class="btn-primary" disabled>Download binary</button>
         <button id="exportTap" class="btn-accent" disabled>Download .TAP</button>
       </div>
+      <label id="tapAttrsFirstRow" class="switch switch-row" style="display: none">
+        <input id="tapAttrsFirst" type="checkbox">
+        Attributes first in .TAP
+      </label>
       <div id="exportPico8TxtRow" class="export-row" style="display: none">
         <button id="exportPico8Txt" class="btn-secondary" disabled>Download Pico-8 hex .txt</button>
       </div>
@@ -2139,6 +2143,8 @@ const UI = {
   snapshotBtn: byId("snapshotBtn"),
   statusSize: byId("statusSize"),
   statusText: byId("statusText"),
+  tapAttrsFirst: byId("tapAttrsFirst"),
+  tapAttrsFirstRow: byId("tapAttrsFirstRow"),
 };
 
 // --- Palette strip (mode-aware + disable-color) ---
@@ -3622,6 +3628,10 @@ function updateModeUI() {
   }
 
   UI.exportTap.style.display = cfg.supportsTap ? "" : "none";
+  // Block order only matters where the .TAP carries a separate attribute block
+  // (ECM: pixels at 0x4000, attributes at 0x6000). Loading attributes first lets
+  // viewers such as ECMview paint artifact-free.
+  UI.tapAttrsFirstRow.style.display = cfg.supportsTap && mode === "ecm" ? "" : "none";
   // Pico-8 hex .txt export is mode-specific (only useful in pico8 mode)
   const pico8Row = UI.exportPico8TxtRow;
   if (pico8Row) pico8Row.style.display = mode === "pico8" ? "" : "none";
@@ -8085,7 +8095,14 @@ UI.exportBin.addEventListener("click", () => {
 UI.exportTap.addEventListener("click", () => {
   const state = buildBinaryExportData();
   if (!state || !state.tapBlocks) return;
-  const tap = generateTap(state.tapBlocks);
+  let blocks = state.tapBlocks;
+  if (state.mode === "ecm" && UI.tapAttrsFirst.checked) {
+    // Each block carries its own load address, so emitting the attribute block
+    // first is safe and lets ECMview paint the image artifact-free.
+    const attrIdx = blocks.findIndex(b => b.name === "ecm-atr");
+    if (attrIdx > 0) blocks = [blocks[attrIdx], ...blocks.filter((_, i) => i !== attrIdx)];
+  }
+  const tap = generateTap(blocks);
   const label = modes[state.mode].label;
   downloadBlob(new Blob([tap], { type: "application/octet-stream" }),
                `image_${label}.tap`);
