@@ -953,6 +953,7 @@ svg {
         <option value="jarvis-judice-ninke">Jarvis-Judice-Ninke</option>
         <option value="burkes">Burkes</option>
         <option value="sierra-lite">Sierra Lite</option>
+        <option value="sierra-line">Sierra Line</option>
         <option value="dizzy">Dizzy</option>
         <option value="hilbert-diffusion">Hilbert diffusion</option>
         <option value="hilbert-riemersma">Hilbert Riemersma</option>
@@ -970,6 +971,7 @@ svg {
       <select id="colorStrategy">
         <option value="segment-coverage" selected>Best segment coverage</option>
         <option value="simplex-coverage">Best simplex coverage</option>
+        <option value="interlaced-segment-coverage">Interlaced segment coverage</option>
         <option value="weighted-average">Weighted average pair fit</option>
         <option value="per-block">Per-block best-fit</option>
         <option value="global">Global pre-quantize + per-block</option>
@@ -988,6 +990,10 @@ svg {
       <label id="showGridRow" class="switch switch-row">
         <input id="showGrid" type="checkbox">
         Show block grid
+      </label>
+      <label id="interlacedRow" class="switch switch-row">
+        <input id="interlaced" type="checkbox">
+        Interlaced
       </label>
       <label id="serpentineRow" class="switch switch-row">
         <input id="serpentine" type="checkbox" checked>
@@ -2108,6 +2114,8 @@ const UI = {
   inputControls: byId("inputControls"),
   inputFullscreenBtn: byId("inputFullscreenBtn"),
   inputToolbar: byId("inputToolbar"),
+  interlaced: byId("interlaced"),
+  interlacedRow: byId("interlacedRow"),
   loadNewBtn: byId("loadNewBtn"),
   lockAspect: byId("lockAspect"),
   modesFileInput: byId("modesFileInput"),
@@ -2242,7 +2250,31 @@ function setZXAttrBlockColors(q, palettes, by, bx, attr) {
   colors[1] = pal[(attr >> 3) & 7];
 }
 
-function chooseZXSegmentCoverageAttribute(source, pairs, palettes) {
+function segmentCoverageErrorLinearRgb(source, start, end, colorA, colorB, maxError = Infinity) {
+  const vx = colorA[0] - colorB[0];
+  const vy = colorA[1] - colorB[1];
+  const vz = colorA[2] - colorB[2];
+  const len2 = vx * vx + vy * vy + vz * vz;
+  let error = 0;
+  for (let i = start; i < end; i += 3) {
+    const r = source[i];
+    const g = source[i + 1];
+    const b = source[i + 2];
+    let qr = colorB[0], qg = colorB[1], qb = colorB[2];
+    if (len2 > 1e-8) {
+      let t = ((r - colorB[0]) * vx + (g - colorB[1]) * vy + (b - colorB[2]) * vz) / len2;
+      if (t < 0) t = 0; else if (t > 1) t = 1;
+      qr += vx * t;
+      qg += vy * t;
+      qb += vz * t;
+    }
+    error += colorDistLinearRgb(r, g, b, qr, qg, qb);
+    if (error >= maxError) return error;
+  }
+  return error;
+}
+
+function chooseZXSegmentCoverageAttribute(source, pairs, palettes, start = 0, end = source.length) {
   let bestBright = 0, bestInk = 0, bestPaper = 0, bestError = Infinity;
   for (let p = 0; p < pairs.length; p += 3) {
     const bright = pairs[p];
@@ -2250,26 +2282,7 @@ function chooseZXSegmentCoverageAttribute(source, pairs, palettes) {
     const paper = pairs[p + 2];
     const inkColor = palettes[bright][ink];
     const paperColor = palettes[bright][paper];
-    const vx = inkColor[0] - paperColor[0];
-    const vy = inkColor[1] - paperColor[1];
-    const vz = inkColor[2] - paperColor[2];
-    const len2 = vx * vx + vy * vy + vz * vz;
-    let error = 0;
-    for (let i = 0; i < source.length; i += 3) {
-      const r = source[i];
-      const g = source[i + 1];
-      const b = source[i + 2];
-      let qr = paperColor[0], qg = paperColor[1], qb = paperColor[2];
-      if (len2 > 1e-8) {
-        let t = ((r - paperColor[0]) * vx + (g - paperColor[1]) * vy + (b - paperColor[2]) * vz) / len2;
-        if (t < 0) t = 0; else if (t > 1) t = 1;
-        qr += vx * t;
-        qg += vy * t;
-        qb += vz * t;
-      }
-      error += colorDistLinearRgb(r, g, b, qr, qg, qb);
-      if (error >= bestError) break;
-    }
+    const error = segmentCoverageErrorLinearRgb(source, start, end, inkColor, paperColor, bestError);
     if (error < bestError) {
       bestError = error;
       bestBright = bright;
@@ -3477,6 +3490,7 @@ function handleSettingControlInput(id, control) {
     updateModeUI();
   } else if (id === "colorStrategy") {
     userOverride.colorStrategy = true;
+    updateModeUI();
   }
   if (sourceImage) {
     if (id === "brightness" || id === "contrast" || id === "saturation" || id === "gamma") renderCropOverlay();
@@ -3503,13 +3517,19 @@ bindSettingControl("saturation", UI.saturation);
 bindSettingControl("gamma", UI.gamma);
 bindSettingControl("showGrid", UI.showGrid);
 bindSettingControl("perceptual", UI.perceptualSwitch);
+bindSettingControl("interlaced", UI.interlaced);
 bindSettingControl("serpentine", UI.serpentine);
 bindSettingControl("gaussSeidel", UI.gaussSeidel);
 
 const ZX_EXHAUSTIVE_COLOR_STRATEGIES = ["segment-coverage", "weighted-average", "global", "per-block", "pca"];
+const WIDE_ATTRIBUTE_COLOR_STRATEGIES = ["segment-coverage", "interlaced-segment-coverage", "weighted-average", "global", "per-block", "pca"];
 const C64_HIRES_COLOR_STRATEGIES = ["segment-coverage", "weighted-average", "per-block"];
 const C64_KOALA_COLOR_STRATEGIES = ["simplex-coverage", "per-block"];
 const ROW_DIFFUSION_DITHER_MODES = ["floyd-steinberg", "atkinson", "stucki", "jarvis-judice-ninke", "burkes", "sierra-lite"];
+const INTERLACED_DITHER_MODES = [
+  "floyd-steinberg", "atkinson", "stucki", "jarvis-judice-ninke", "burkes", "sierra-lite", "sierra-line",
+  "blue-noise", "ordered-bayer-4x4", "ordered-bayer-8x8", "halftone",
+];
 
 function isZXAttributeMode(mode) {
   return mode === "standard" || mode === "ts-standard" || mode === "ecm" ||
@@ -3520,6 +3540,10 @@ function isZXAttributeMode(mode) {
 // modes and for the SAM CLUT modes (after their global CLUT selection).
 function isZXSearchStrategy(strategy) {
   return strategy === "exhaustive" || strategy === "sam-clut";
+}
+
+function supportsInterlacedSegmentCoverage(cfg) {
+  return isZXSearchStrategy(cfg.searchStrategy) && cfg.blockW === 8 && cfg.blockH === 1 && cfg.colorsPerBlock === 2;
 }
 
 function isC64HiresMode(mode) {
@@ -3559,17 +3583,21 @@ function modeSupportsGridOverlay(cfg) {
   return cfg.blockW > 1 && (cfg.blockW < cfg.w || cfg.blockH < cfg.h);
 }
 
-function modeSupportsGaussSeidel(mode, cfg, ditherMode) {
+function modeSupportsGaussSeidel(mode, cfg, ditherMode, colorStrategy) {
   // Ordered/threshold dithers are per-pixel deterministic with no cross-block
   // error coupling, so Gauss-Seidel refinement has nothing to react to — and
   // its per-pixel error metric mis-ranks pattern-dithered blocks (prefers
   // dark, low-contrast solid pairs over correct high-contrast patterns).
-  return isZXSearchStrategy(cfg.searchStrategy) && isZXAttributeMode(mode) && !isThresholdDither(ditherMode);
+  return isZXSearchStrategy(cfg.searchStrategy) && isZXAttributeMode(mode) &&
+    !isThresholdDither(ditherMode) && colorStrategy !== "interlaced-segment-coverage";
 }
 
-function allowedColorStrategiesForMode(mode, cfg) {
+function allowedColorStrategiesForMode(mode, cfg, ditherMode = "floyd-steinberg") {
   if (!isZXSearchStrategy(cfg.searchStrategy)) return [];
-  if (isZXAttributeMode(mode)) return ZX_EXHAUSTIVE_COLOR_STRATEGIES;
+  if (isZXAttributeMode(mode)) {
+    return supportsInterlacedSegmentCoverage(cfg) && INTERLACED_DITHER_MODES.includes(ditherMode) ?
+      WIDE_ATTRIBUTE_COLOR_STRATEGIES : ZX_EXHAUSTIVE_COLOR_STRATEGIES;
+  }
   if (cfg.searchStrategy !== "exhaustive") return [];
   if (isC64HiresMode(mode)) return C64_HIRES_COLOR_STRATEGIES;
   if (isC64KoalaMode(mode)) return C64_KOALA_COLOR_STRATEGIES;
@@ -3605,10 +3633,11 @@ function updateModeUI() {
   const mode = UI.displayMode.value;
   const cfg = modes[mode] ?? modes.standard;
   const usesDither = modeUsesDither(cfg);
-  const colorStrategies = allowedColorStrategiesForMode(mode, cfg);
+  const colorStrategies = allowedColorStrategiesForMode(mode, cfg, UI.ditherMode.value);
   const showGrid = modeSupportsGridOverlay(cfg);
+  const showInterlaced = cfg.searchStrategy === "pixel-direct" && INTERLACED_DITHER_MODES.includes(UI.ditherMode.value);
   const showSerpentine = usesDither && ROW_DIFFUSION_DITHER_MODES.includes(UI.ditherMode.value);
-  const showGaussSeidel = modeSupportsGaussSeidel(mode, cfg, UI.ditherMode.value);
+  const showGaussSeidel = modeSupportsGaussSeidel(mode, cfg, UI.ditherMode.value, UI.colorStrategy.value);
   const showPerceptual = perceptualMatchingAvailable(cfg, UI.ditherMode.value);
 
   setControlVisible(UI.hiresColorsGroup, mode === "hires");
@@ -3620,10 +3649,11 @@ function updateModeUI() {
   setControlVisible(UI.colorStrategyGroup, colorStrategies.length > 0);
   setControlVisible(UI.perceptualGroup, showPerceptual);
   setControlVisible(UI.showGridRow, showGrid);
+  setControlVisible(UI.interlacedRow, showInterlaced);
   setControlVisible(UI.serpentineRow, showSerpentine);
   setControlVisible(UI.gaussSeidelRow, showGaussSeidel);
   if (UI.conversionOptionsGroup) {
-    UI.conversionOptionsGroup.dataset.controlVisible = showGrid || showSerpentine || showGaussSeidel ? "1" : "0";
+    UI.conversionOptionsGroup.dataset.controlVisible = showGrid || showInterlaced || showSerpentine || showGaussSeidel ? "1" : "0";
     UI.conversionOptionsGroup.style.display = "";
   }
 
@@ -3785,6 +3815,9 @@ const DIFFUSION_KERNELS = {
   "sierra-lite": new Float32Array([
     1, 0, 2/4, -1, 1, 1/4, 0, 1, 1/4,
   ]),
+  "sierra-line": new Float32Array([
+    -1, 1, 1/4, 0, 1, 2/4, 1, 1, 1/4,
+  ]),
 };
 
 const PIPELINE_WORK_BUDGET_MS = 10;
@@ -3942,6 +3975,7 @@ const conversionPipelineState = {
   atariGr8BgLuma: 0,
   atariHue: 0,
   adjustments: null,
+  interlaced: false,
   serpentine: true,
   gaussSeidel: false,
   srcLinear: null,
@@ -4161,6 +4195,7 @@ function convert() {
   if (!Number.isFinite(state.atariGr8BgLuma)) state.atariGr8BgLuma = 0;
   state.atariHue = parseInt(UI.atariHue.value, 10) || 0;
   state.adjustments = getAdjustmentParams();
+  state.interlaced = UI.interlaced ? UI.interlaced.checked : false;
   state.serpentine = UI.serpentine ? UI.serpentine.checked : true;
   state.gaussSeidel = UI.gaussSeidel ? UI.gaussSeidel.checked : false;
   state.srcLinear = null;
@@ -4900,12 +4935,18 @@ function pipelineStageQuantizeZXExhaustiveBlocks(id) {
     pipelineFail(id, new Error("Missing ZX exhaustive quantize state"), "Unable to quantize image blocks.");
     return;
   }
+  if (state.colorStrategy === "interlaced-segment-coverage" && supportsInterlacedSegmentCoverage(state.modeCfg) &&
+      INTERLACED_DITHER_MODES.includes(state.ditherMode)) {
+    pipelineStageQuantizeZXInterlacedEvenBlocks(id);
+    return;
+  }
   try {
     const screenW = state.screenWidth;
     const palettes = q.zxPalettes;
     const ditherMode = state.ditherMode;
     const perceptual = state.perceptual;
-    const colorStrategy = state.colorStrategy;
+    const colorStrategy = state.colorStrategy === "interlaced-segment-coverage" ?
+      "segment-coverage" : state.colorStrategy;
     const colorMasks = q.zxColorMasks;
     const work = state.work;
     const bW = q.bW;
@@ -5139,6 +5180,58 @@ function pipelineStageQuantizeZXExhaustiveBlocks(id) {
     pipelineStageDitherQuantizedBlocks(id);
   } catch (err) {
     pipelineFail(id, err, "Unable to quantize image blocks.");
+  }
+}
+
+// Stage 3a-alt: choose segment-fit attributes for even rows only. Odd rows are
+// selected later from their error-adjusted pixels during the dither pass.
+function pipelineStageQuantizeZXInterlacedEvenBlocks(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "quantize-zx-interlaced-even-blocks";
+  const q = state.quantizeWork;
+  const pass = state.quantizePass;
+  if (!q || !pass || !q.attrs || !q.zxPalettes || !q.zxPairsAny) {
+    pipelineFail(id, new Error("Missing interlaced segment quantize state"), "Unable to quantize interlaced image blocks.");
+    return;
+  }
+  try {
+    const screenW = state.screenWidth;
+    const work = state.work;
+    const palettes = q.zxPalettes;
+    const bW = q.bW;
+    const bH = q.bH;
+    const numAttrCols = q.numAttrCols;
+    const numAttrRows = q.numAttrRows;
+    const attrs = q.attrs;
+    const evenRows = (numAttrRows + 1) >> 1;
+    const total = numAttrCols * evenRows;
+    const deadline = pipelineWorkDeadline();
+    while (pass.offset < total) {
+      const unit = pass.offset;
+      const evenRow = (unit / numAttrCols) | 0;
+      const bx = unit - evenRow * numAttrCols;
+      const by = evenRow * 2;
+      const blockX = bx * bW;
+      const blockY = by * bH;
+      const source = q.evalSource;
+      copyBlockToSource(source, work, screenW, blockX, blockY, bW, bH);
+      const attr = chooseZXSegmentCoverageAttribute(source, q.zxPairsAny, palettes);
+      attrs[by * numAttrCols + bx] = attr;
+      setZXAttrBlockColors(q, palettes, by, bx, attr);
+      if (by + 1 < numAttrRows) q.blockColors[by + 1][bx] = null;
+      pass.offset++;
+      if (pipelineShouldYield(deadline)) break;
+    }
+    if (pass.offset < total) {
+      pipelineSchedule(pipelineStageQuantizeZXInterlacedEvenBlocks, id);
+      return;
+    }
+    state.quantizePass = null;
+    pipelineStageDitherQuantizedBlocks(id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to quantize interlaced image blocks.");
   }
 }
 
@@ -5799,6 +5892,13 @@ function pipelineStartDitherPass(id, reason) {
   }
   const ditherMode = state.ditherMode;
   const kernel = DIFFUSION_KERNELS[ditherMode] || null;
+  const interlacedSegment = state.colorStrategy === "interlaced-segment-coverage" &&
+    INTERLACED_DITHER_MODES.includes(ditherMode) && supportsInterlacedSegmentCoverage(state.modeCfg) &&
+    !!q.zxPalettes && !!q.zxPairsAny;
+  const interlacedDirect = state.interlaced && state.modeCfg.searchStrategy === "pixel-direct" &&
+    INTERLACED_DITHER_MODES.includes(ditherMode);
+  const interlaced = interlacedSegment || interlacedDirect;
+  const interlacedThreshold = interlaced && isThresholdDither(ditherMode);
   // Block colors are stable for the duration of this pass; invalidate the
   // perceptual conversion memo from any previous pass (GS may have changed colors).
   perceptualBlockColorsSource = null;
@@ -5818,6 +5918,10 @@ function pipelineStartDitherPass(id, reason) {
     numAttrRows: q.numAttrRows,
     serpentine: state.serpentine,
     kernel,
+    interlaced,
+    interlacedThreshold,
+    interlacedSegment,
+    interlacedPhase: 0,
     y: 0,
     copyOffset: 0,
     k: 0,
@@ -5827,11 +5931,11 @@ function pipelineStartDitherPass(id, reason) {
     errorHead: 0,
     visited: null,
   };
-  if (isThresholdDither(ditherMode)) {
+  if (isThresholdDither(ditherMode) && !interlacedThreshold) {
     pipelineStageDitherThresholdRows(id);
     return;
   }
-  if (ditherMode === "hilbert-diffusion" || ditherMode === "adaptive-riemersma" || ditherMode === "hilbert-riemersma" || ditherMode === "dizzy" || kernel) {
+  if (ditherMode === "hilbert-diffusion" || ditherMode === "adaptive-riemersma" || ditherMode === "hilbert-riemersma" || ditherMode === "dizzy" || kernel || interlacedThreshold) {
     state.ditherTempBuffer = ensureFloat32Buffer(state.ditherTempBuffer, state.work.length);
     state.ditherPass.temp = state.ditherTempBuffer;
     pipelineStageDitherCopyTemp(id);
@@ -5903,7 +6007,7 @@ function pipelineStageDitherThresholdRows(id) {
   }
 }
 
-// Stage 4b: copy source pixels for error-diffusion modes without one long loop.
+// Stage 4b: copy source pixels for error-propagating modes without one long loop.
 function pipelineStageDitherCopyTemp(id) {
   if (!pipelineIsCurrent(id)) return;
   const state = conversionPipelineState;
@@ -5924,6 +6028,18 @@ function pipelineStageDitherCopyTemp(id) {
     }
     if (pass.copyOffset < pass.work.length) {
       pipelineSchedule(pipelineStageDitherCopyTemp, id);
+      return;
+    }
+    if (pass.interlacedThreshold) {
+      pass.interlacedPhase = 0;
+      pass.y = 0;
+      pipelineStageDitherInterlacedThresholdRows(id);
+      return;
+    }
+    if (pass.interlaced && pass.kernel) {
+      pass.interlacedPhase = 0;
+      pass.y = 0;
+      pipelineStageDitherInterlacedRows(id);
       return;
     }
     if (pass.ditherMode === "hilbert-diffusion") {
@@ -6032,6 +6148,215 @@ function pipelineStageDitherNearestRows(id) {
   }
 }
 
+function selectInterlacedSegmentBlock(q, pass, by, bx) {
+  const source = q.evalSource;
+  const blockX = bx * pass.bW;
+  const blockY = by * pass.bH;
+  let dst = 0;
+  for (let py = 0; py < pass.bH; py++) {
+    let src = ((blockY + py) * pass.width + blockX) * 3;
+    const end = src + pass.bW * 3;
+    while (src < end) {
+      source[dst++] = Math.max(0, Math.min(1, pass.temp[src++]));
+      source[dst++] = Math.max(0, Math.min(1, pass.temp[src++]));
+      source[dst++] = Math.max(0, Math.min(1, pass.temp[src++]));
+    }
+  }
+  const attr = chooseZXSegmentCoverageAttribute(source, q.zxPairsAny, q.zxPalettes);
+  q.attrs[by * pass.numAttrCols + bx] = attr;
+  setZXAttrBlockColors(q, q.zxPalettes, by, bx, attr);
+}
+
+// Stage 4d-threshold: render even rows first and spread each quantization
+// error through a symmetric Sierra Line fan into the untouched odd rows.
+// When both adjacent rows exist, each receives half of the total 1/4, 2/4,
+// 1/4 fan; at the image edge, the one available row receives the full fan.
+// Odd rows are then rendered without further propagation.
+function pipelineStageDitherInterlacedThresholdRows(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "dither-interlaced-threshold-rows";
+  const pass = state.ditherPass;
+  const q = state.quantizeWork;
+  if (!pass || !pass.temp || !pass.interlacedThreshold || !q ||
+      (pass.interlacedSegment && (!q.attrs || !q.evalSource || !q.zxPalettes || !q.zxPairsAny))) {
+    pipelineFail(id, new Error("Missing interlaced threshold state"), "Unable to dither interlaced image rows.");
+    return;
+  }
+  try {
+    const sampleThreshold = getThresholdSampler(pass.ditherMode);
+    const deadline = pipelineWorkDeadline();
+    while (true) {
+      if (pass.y >= pass.height) {
+        if (pass.interlacedPhase === 0) {
+          pass.interlacedPhase = 1;
+          pass.y = 1;
+          continue;
+        }
+        pipelineStageFinishDitherPass(id);
+        return;
+      }
+      const y = pass.y;
+      const by = Math.min(pass.numAttrRows - 1, (y / pass.bH) | 0);
+      const blockColorRow = pass.blockColors[by];
+      const neighborCount = (y > 0 ? 1 : 0) + (y + 1 < pass.height ? 1 : 0);
+      const rowWeight = neighborCount > 0 ? 1 / neighborCount : 0;
+      let currentBx = -1;
+      let colors = null;
+      let twoColor = false;
+      let c0 = null;
+      let c1 = null;
+      for (let x = 0; x < pass.width; x++) {
+        const bx = Math.min(pass.numAttrCols - 1, (x / pass.bW) | 0);
+        if (bx !== currentBx) {
+          currentBx = bx;
+          if (pass.interlacedPhase === 1 && pass.interlacedSegment) selectInterlacedSegmentBlock(q, pass, by, bx);
+          colors = blockColorRow[bx];
+          twoColor = colors.length === 2;
+          c0 = colors[0];
+          c1 = colors[1];
+        }
+        const idx = (y * pass.width + x) * 3;
+        const r = Math.max(0, Math.min(1, pass.temp[idx]));
+        const g = Math.max(0, Math.min(1, pass.temp[idx + 1]));
+        const b = Math.max(0, Math.min(1, pass.temp[idx + 2]));
+        const threshold = sampleThreshold(x, y);
+        let chosen;
+        if (twoColor) {
+          const factor = blendFactorLinearRgb(r, g, b, c0, c1);
+          chosen = factor > threshold ? c1 : c0;
+        } else {
+          chosen = colors[chooseOrderedPaletteIndex(r, g, b, colors, threshold)];
+        }
+        pass.result[idx] = chosen[0];
+        pass.result[idx + 1] = chosen[1];
+        pass.result[idx + 2] = chosen[2];
+        if (pass.interlacedPhase !== 0 || neighborCount === 0) continue;
+
+        const er = r - chosen[0];
+        const eg = g - chosen[1];
+        const eb = b - chosen[2];
+        const dxStart = x > 0 ? -1 : 0;
+        const dxEnd = x + 1 < pass.width ? 1 : 0;
+        for (let ny = y - 1; ny <= y + 1; ny += 2) {
+          if (ny < 0 || ny >= pass.height) continue;
+          for (let dx = dxStart; dx <= dxEnd; dx++) {
+            let weight = rowWeight;
+            if (pass.width > 1) {
+              weight *= x === 0 || x === pass.width - 1 ? 1/2 : dx === 0 ? 2/4 : 1/4;
+            }
+            const nIdx = (ny * pass.width + x + dx) * 3;
+            pass.temp[nIdx] += er * weight;
+            pass.temp[nIdx + 1] += eg * weight;
+            pass.temp[nIdx + 2] += eb * weight;
+          }
+        }
+      }
+      pass.y += 2;
+      if (pipelineShouldYield(deadline)) break;
+    }
+    pipelineSchedule(pipelineStageDitherInterlacedThresholdRows, id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to dither interlaced image rows.");
+  }
+}
+
+// Stage 4d-alt: render even rows first while accumulating their error into the
+// untouched odd rows, then render the odd rows from that adjusted input. The
+// interlaced attribute strategy selects odd-row colors immediately before use;
+// direct-pixel modes keep their global palette. Odd-to-even error is discarded
+// because every even row is already final; dy=2 kernels may still carry error
+// between odd rows.
+function pipelineStageDitherInterlacedRows(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "dither-interlaced-rows";
+  const pass = state.ditherPass;
+  const q = state.quantizeWork;
+  if (!pass || !pass.temp || !pass.kernel || !pass.interlaced || !q ||
+      (pass.interlacedSegment && (!q.attrs || !q.evalSource || !q.zxPalettes || !q.zxPairsAny))) {
+    pipelineFail(id, new Error("Missing interlaced diffusion state"), "Unable to dither interlaced image rows.");
+    return;
+  }
+  try {
+    const linearRgbTwoColor = pass.linearRgbTwoColor;
+    const sierraLine = pass.ditherMode === "sierra-line";
+    const deadline = pipelineWorkDeadline();
+    while (true) {
+      if (pass.y >= pass.height) {
+        if (pass.interlacedPhase === 0) {
+          pass.interlacedPhase = 1;
+          pass.y = 1;
+          continue;
+        }
+        pipelineStageFinishDitherPass(id);
+        return;
+      }
+      const y = pass.y;
+      const rtl = !sierraLine && pass.serpentine && (y & 1) === 1;
+      const xStart = rtl ? pass.width - 1 : 0;
+      const xEnd = rtl ? -1 : pass.width;
+      const xStep = rtl ? -1 : 1;
+      const by = Math.min(pass.numAttrRows - 1, (y / pass.bH) | 0);
+      const blockColorRow = pass.blockColors[by];
+      let currentBx = -1;
+      let colors = null;
+      let twoColor = false;
+      let c0 = null;
+      let c1 = null;
+      for (let x = xStart; x !== xEnd; x += xStep) {
+        const bx = Math.min(pass.numAttrCols - 1, (x / pass.bW) | 0);
+        if (bx !== currentBx) {
+          currentBx = bx;
+          if (pass.interlacedPhase === 1 && pass.interlacedSegment) selectInterlacedSegmentBlock(q, pass, by, bx);
+          colors = blockColorRow[bx];
+          twoColor = colors.length === 2;
+          c0 = colors[0];
+          c1 = colors[1];
+        }
+        const idx = (y * pass.width + x) * 3;
+        const r = Math.max(0, Math.min(1, pass.temp[idx]));
+        const g = Math.max(0, Math.min(1, pass.temp[idx + 1]));
+        const b = Math.max(0, Math.min(1, pass.temp[idx + 2]));
+        const chosen = twoColor ?
+          closerOfTwoColors(r, g, b, c0, c1, linearRgbTwoColor) :
+          colors[quantizeNearestLinearRgb(r, g, b, colors)];
+        pass.result[idx] = chosen[0];
+        pass.result[idx + 1] = chosen[1];
+        pass.result[idx + 2] = chosen[2];
+        const er = r - chosen[0];
+        const eg = g - chosen[1];
+        const eb = b - chosen[2];
+        let edgeWeight = 0;
+        if (sierraLine && pass.width === 1) edgeWeight = 1;
+        else if (sierraLine && (x === 0 || x === pass.width - 1)) edgeWeight = 2/4;
+        const kernel = pass.kernel;
+        for (let ki = 0; ki < kernel.length; ki += 3) {
+          const dx = kernel[ki];
+          const dy = kernel[ki + 1];
+          const weight = edgeWeight || kernel[ki + 2];
+          const sx = rtl ? -dx : dx;
+          const nx = x + sx, ny = y + dy;
+          if (nx >= 0 && nx < pass.width && ny >= 0 && ny < pass.height &&
+              (pass.interlacedPhase === 0 || (ny & 1) === 1)) {
+            const nIdx = (ny * pass.width + nx) * 3;
+            pass.temp[nIdx] += er * weight;
+            pass.temp[nIdx + 1] += eg * weight;
+            pass.temp[nIdx + 2] += eb * weight;
+          }
+        }
+      }
+      pass.y += 2;
+      if (pipelineShouldYield(deadline)) break;
+    }
+    pipelineSchedule(pipelineStageDitherInterlacedRows, id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to dither interlaced image rows.");
+  }
+}
+
 // Stage 4d: process scanline error-diffusion rows sequentially in bounded groups.
 function pipelineStageDitherDiffusionRows(id) {
   if (!pipelineIsCurrent(id)) return;
@@ -6045,11 +6370,12 @@ function pipelineStageDitherDiffusionRows(id) {
   }
   try {
     const linearRgbTwoColor = pass.linearRgbTwoColor;
+    const sierraLine = pass.ditherMode === "sierra-line";
     const deadline = pipelineWorkDeadline();
     while (pass.y < pass.height) {
       const yEnd = Math.min(pass.height, pass.y + DITHER_ROW_CHUNK);
       for (let y = pass.y; y < yEnd; y++) {
-        const rtl = pass.serpentine && (y & 1) === 1;
+        const rtl = !sierraLine && pass.serpentine && (y & 1) === 1;
         const xStart = rtl ? pass.width - 1 : 0;
         const xEnd = rtl ? -1 : pass.width;
         const xStep = rtl ? -1 : 1;
@@ -6083,10 +6409,13 @@ function pipelineStageDitherDiffusionRows(id) {
           const eg = g - chosen[1];
           const eb = b - chosen[2];
           const kernel = pass.kernel;
+          let edgeWeight = 0;
+          if (sierraLine && pass.width === 1) edgeWeight = 1;
+          else if (sierraLine && (x === 0 || x === pass.width - 1)) edgeWeight = 2/4;
           for (let ki = 0; ki < kernel.length; ki += 3) {
             const dx = kernel[ki];
             const dy = kernel[ki + 1];
-            const weight = kernel[ki + 2];
+            const weight = edgeWeight || kernel[ki + 2];
             const sx = rtl ? -dx : dx;
             const nx = x + sx, ny = y + dy;
             if (nx >= 0 && nx < pass.width && ny >= 0 && ny < pass.height) {
@@ -6368,6 +6697,7 @@ function pipelineStageFinishDitherPass(id) {
     const needsGS =
       state.gaussSeidel &&
       !isThresholdDither(state.ditherMode) &&
+      state.colorStrategy !== "interlaced-segment-coverage" &&
       q &&
       isZXSearchStrategy(q.strategy) &&
       isZXAttributeMode(state.mode) &&
@@ -7064,6 +7394,7 @@ function evaluateBlock(work, width, bx, by, bw, bh, colors, ditherMode, temp, so
   }
 
   const kernel = DIFFUSION_KERNELS[ditherMode];
+  const sierraLine = ditherMode === "sierra-line";
   const useLinearRgb = linearRgbTwoColor || colors.length > 2;
   // Candidate color arrays are mutated between calls, so convert them fresh
   // here instead of going through the identity-memoized rendering path.
@@ -7101,10 +7432,14 @@ function evaluateBlock(work, width, bx, by, bw, bh, colors, ditherMode, temp, so
         const er = r - chosen[0];
         const eg = g - chosen[1];
         const eb = b - chosen[2];
+        const imageX = bx + px;
+        let edgeWeight = 0;
+        if (sierraLine && width === 1) edgeWeight = 1;
+        else if (sierraLine && (imageX === 0 || imageX === width - 1)) edgeWeight = 2/4;
         for (let ki = 0; ki < kernel.length; ki += 3) {
           const dx = kernel[ki];
           const dy = kernel[ki + 1];
-          const weight = kernel[ki + 2];
+          const weight = edgeWeight || kernel[ki + 2];
           const nx = px + dx, ny = py + dy;
           if (nx >= 0 && nx < tempW && ny >= 0 && ny < tempH) {
             const nIdx = (ny * tempW + nx) * 3;
@@ -8648,6 +8983,7 @@ function getCurrentProfile() {
     crtBorderColorIndex: crtBorderColorIndex === undefined ? null : crtBorderColorIndex,
     crtScanlines: UI.crtScanlinesSwitch.checked,
     perceptual: UI.perceptualSwitch.checked,
+    interlaced: UI.interlaced.checked,
     serpentine: UI.serpentine.checked,
     gaussSeidel: UI.gaussSeidel.checked,
     disabledColors: disabledColorProfile,
@@ -8725,6 +9061,7 @@ function applyProfile(p) {
   // "okLab" is the former name of the perceptual switch in exported profiles.
   if (p.perceptual != null) UI.perceptualSwitch.checked = !!p.perceptual;
   else if (p.okLab != null) UI.perceptualSwitch.checked = !!p.okLab;
+  if (p.interlaced != null) UI.interlaced.checked = !!p.interlaced;
   if (p.serpentine != null) UI.serpentine.checked = !!p.serpentine;
   if (p.gaussSeidel != null) UI.gaussSeidel.checked = !!p.gaussSeidel;
   if (p.disabledColors) {
